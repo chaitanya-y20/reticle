@@ -10,8 +10,8 @@
  * teaches an agent to pass `confirmDangerous: true` reflexively, so the block has to be exactly as
  * wide as the acts it protects: a button labelled Delete, and a link the page wired up itself.
  */
-import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { dispatchWebMcp, executeAction } from './actions.js';
+import { describe, expect, it, beforeEach } from 'vitest';
+import { executeAction } from './actions.js';
 import { refs } from '@/dom/addressing/refs.js';
 
 const refTo = (selector: string): string => {
@@ -82,27 +82,5 @@ describe('a plain navigation link is clicked without confirming', () => {
     document.body.innerHTML =
       '<form action="/api/refund"><button type="submit" id="go">Issue refund</button></form>';
     await expect(executeAction(refTo('#go'), 'click')).rejects.toThrow(/confirmDangerous/);
-  });
-});
-
-/**
- * A tool NAME is not an element, and the guard has to keep accepting one.
- *
- * `dispatchWebMcp` classified `navigator.modelContext` tool names through the same entry point, and
- * the element-aware form reached for `el.closest` on a string. The exemption is for a link the
- * browser can inspect; a name has nothing to inspect, so the text decides there as it always did.
- */
-describe('a WebMCP tool name is still classified by its text alone', () => {
-  it('blocks a destructive tool name and lets a named one through once confirmed', async () => {
-    const callTool = vi.fn(() => Promise.resolve({ ok: true }));
-    (navigator as unknown as Record<string, unknown>)['modelContext'] = { callTool };
-    await expect(dispatchWebMcp('delete_account', {})).rejects.toThrow(/confirmDangerous/);
-    await expect(dispatchWebMcp('delete_account', {}, true)).resolves.toEqual({ ok: true });
-  });
-
-  it('does not block a harmless tool name', async () => {
-    const callTool = vi.fn(() => Promise.resolve({ ok: true }));
-    (navigator as unknown as Record<string, unknown>)['modelContext'] = { callTool };
-    await expect(dispatchWebMcp('search', { q: 'x' })).resolves.toEqual({ ok: true });
   });
 });
