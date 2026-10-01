@@ -25,4 +25,53 @@ describe('assertNotDestructive', () => {
       assertNotDestructive(ActionType.CLICK, {}, { text: 'Send payment', role: 'button' }),
     ).toThrow(/confirmDangerous/);
   });
+
+  /**
+   * The inspector reports the anchor's own facts, because this path has no element to read.
+   *
+   * Without them a plain navigation link is classified on its href, and `/billing/payments` reads
+   * as money-moving. A link with an inline handler keeps its block, which is the whole reason those
+   * two fields travel.
+   */
+  it('does not block a plain navigation link whose href carries a money word', () => {
+    expect(() =>
+      assertNotDestructive(
+        ActionType.CLICK,
+        {},
+        {
+          text: 'Orders & invoices',
+          role: 'link',
+          href: '/billing/payment',
+          inlineHandler: false,
+          insideForm: false,
+        },
+      ),
+    ).not.toThrow();
+  });
+
+  it('still blocks a link the page wired up in the markup', () => {
+    expect(() =>
+      assertNotDestructive(
+        ActionType.CLICK,
+        {},
+        {
+          text: 'Orders & invoices',
+          role: 'link',
+          href: '/billing/payment',
+          inlineHandler: true,
+          insideForm: false,
+        },
+      ),
+    ).toThrow(/confirmDangerous/);
+  });
+
+  it('keeps the old answer for a descriptor that carries no anchor facts', () => {
+    expect(() =>
+      assertNotDestructive(
+        ActionType.CLICK,
+        {},
+        { text: 'Orders & invoices', role: 'link', href: '/billing/payment' },
+      ),
+    ).toThrow(/confirmDangerous/);
+  });
 });

@@ -120,6 +120,54 @@ export function isOpaqueOrigin(origin: string): boolean {
 }
 
 /**
+ * What the control's own ELEMENT says about whether pressing it can have an effect.
+ *
+ * The destructive-label pattern decides on the words a control exposes. Two of those words are the
+ * element's structure rather than its label: an inline handler, and the form it belongs to. A
+ * caller that has the element reads both and hands them over here; a caller that has only a
+ * descriptor omits them, and then nothing is exempted.
+ */
+export interface LinkAttributes {
+  /** The resolved `href`, when the control has one. */
+  href?: string;
+  /** True when the element carries an inline event handler attribute, such as `onclick`. */
+  inlineHandler?: boolean;
+  /** True when the control submits a form, or sits inside one. */
+  insideForm?: boolean;
+}
+
+/**
+ * The roles a control can carry and still be a plain navigation link.
+ *
+ * `getRole` answers `link` for an `<a href>` and `generic` for an anchor without one, and an author
+ * may spell either explicitly. Anything else — a button, a menuitem, a checkbox — performs an act
+ * rather than asking for a URL, so it is never handed the link exemption.
+ */
+const LINK_ROLES: ReadonlySet<string> = new Set(['link', 'generic']);
+
+/**
+ * An `<a href>` with no inline handler and no form of its own moves by GET.
+ *
+ * The destructive-label pattern reads a control's `href` along with its text, which is right for a
+ * button whose label is an icon — its `formAction` is the only place it says what it does. On an
+ * anchor the href is an ADDRESS, and addresses carry the pattern's words: `Orders & invoices`
+ * pointing at `/billing/payment` is refused today for the `payment` in the URL, and a same-origin
+ * GET to that URL changes nothing on its own.
+ *
+ * `href="#"` is NOT exempted, and deliberately. A fragment href addresses the document you are
+ * already on, so it is the shape an author reaches for when the link's real act lives somewhere
+ * else — "inert href plus a handler" is the idiom, which makes `#` the one href that tells you
+ * least. It stays classified on its text, the refusing direction.
+ */
+export function isPlainNavigationLink(role: string | undefined, attrs: LinkAttributes): boolean {
+  if (role === undefined || !LINK_ROLES.has(role.trim().toLowerCase())) return false;
+  const href = attrs.href;
+  if (href === undefined || href.trim().length === 0 || '#' === href.trim()) return false;
+  if (attrs.inlineHandler === true) return false;
+  return attrs.insideForm !== true;
+}
+
+/**
  * Best-effort classifier for labels and tool names that can trigger irreversible effects.
  *
  * `role` is the resolved ARIA role of the control. An `option` is a value picker: its text names
@@ -129,4 +177,25 @@ export function isOpaqueOrigin(origin: string): boolean {
 export function isDangerousActionText(text: string, role?: string): boolean {
   if (role !== undefined && VALUE_PICKER_ROLES.has(role.trim().toLowerCase())) return false;
   return DANGEROUS_ACTION.test(text.replace(/[_-]+/g, ' '));
+}
+
+/**
+ * The same classification, told what the control cannot say for itself.
+ *
+ * A plain `<a href>` moves by GET and changes nothing, so its label and its address are not
+ * evidence of a destructive act — the reporter's `Orders & invoices` link was refused for the
+ * `payment` in its href, and the way past the refusal is `confirmDangerous: true`, which is how a
+ * guard becomes decoration. Narrowing is what keeps the guard worth heeding.
+ *
+ * The role alone cannot decide this: a `role="link"` on a `<div>` is a free string any page can
+ * write, so the caller's own facts about the element — does it carry a handler, does it sit in a
+ * form — are the ones consulted here.
+ */
+export function classifyActionText(
+  text: string,
+  role: string | undefined,
+  attrs: LinkAttributes,
+): boolean {
+  if (isPlainNavigationLink(role, attrs)) return false;
+  return isDangerousActionText(text, role);
 }

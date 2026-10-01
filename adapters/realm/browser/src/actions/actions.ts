@@ -9,7 +9,6 @@ import {
 import { asSyntheticInput } from './synthetic/synthetic-input.js';
 import { echoRef, refs } from '@/dom/addressing/refs.js';
 import {
-  dangerousActionContext,
   requiresDangerousConfirmation,
   submitControlFor,
 } from './danger-context.js';
@@ -360,12 +359,10 @@ function assertActionAllowed(
   const submitter =
     action === ActionType.PRESS && 'Enter' === pressKey(args) ? submitControlFor(el) : null;
   const sourceDangerous =
-    requiresDangerousConfirmation(dangerousActionContext(el), getRole(el)) ||
-    (submitter !== null &&
-      requiresDangerousConfirmation(dangerousActionContext(submitter), getRole(submitter)));
+    requiresDangerousConfirmation(el) ||
+    (submitter !== null && requiresDangerousConfirmation(submitter));
   const targetDangerous =
-    isActionTarget(dragTarget) &&
-    requiresDangerousConfirmation(dangerousActionContext(dragTarget), getRole(dragTarget));
+    isActionTarget(dragTarget) && requiresDangerousConfirmation(dragTarget);
   if (
     canTrigger &&
     (sourceDangerous || targetDangerous) &&

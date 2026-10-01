@@ -158,6 +158,16 @@ function inspect(ref: string): unknown {
     ...(sourceUnavailable !== undefined ? { sourceUnavailable } : {}),
     tag: el.tagName.toLowerCase(),
     href: el.getAttribute('href') ?? undefined,
+    /**
+     * The anchor facts the destructive guard needs and a plain descriptor cannot carry.
+     *
+     * `href` alone reads as destructive on a plain navigation link (`/billing/payment`), and the
+     * native path classifies this descriptor with no element in reach. Without these it would
+     * exempt a link the page wired up in the markup — `onclick` on `/purchase/confirm` — which is
+     * exactly what that attribute says the link is not.
+     */
+    inlineHandler: el.hasAttribute('onclick'),
+    insideForm: el.closest('form') !== null,
     formAction:
       isButton(el) || isInput(el) ? (el.form?.getAttribute('action') ?? undefined) : undefined,
     formText: isButton(el) || isInput(el) ? (el.form?.textContent ?? undefined) : undefined,

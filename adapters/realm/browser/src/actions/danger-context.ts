@@ -10,8 +10,8 @@
  * only chooses what to hand it.
  */
 
-import { isDangerousActionText } from '@reticlehq/core';
-import { getAccessibleName } from '@/dom/a11y.js';
+import { classifyActionText, type LinkAttributes } from '@reticlehq/core';
+import { getAccessibleName, getRole } from '@/dom/a11y.js';
 import { type ActionTarget, isHtmlElement } from '@/dom/realm.js';
 
 /**
@@ -42,6 +42,35 @@ function holdsUserText(el: ActionTarget): boolean {
   return false;
 }
 
+/**
+ * A handler written into the markup rather than bound in script.
+ *
+ * The bound equivalent needs no detection: Reticle patches `addEventListener` for the observers and
+ * records what a listener did, so a link wired up in code reports its effect the moment it is
+ * clicked. An inline attribute is the case where the page tells you in the markup that the link is
+ * not a plain navigation — and a URL carrying "payment" plus `onclick` is exactly the control the
+ * reporter kept behind `confirmDangerous`.
+ */
+const INLINE_HANDLER_ATTR = 'onclick';
+
+/**
+ * The element facts the pattern cannot read for itself.
+ *
+ * A plain anchor is the one control whose label and address are not evidence of what it does: its
+ * href is a URL, and URLs carry the pattern's words (`/billing/payments`). Whether it is plain is a
+ * question about the ELEMENT — a handler, a form — so it is answered here, where the element is.
+ * The `href` is included only when the element HAS the attribute, so an anchor with no `href` is
+ * not mistaken for one pointing at the empty string.
+ */
+function linkAttributes(el: ActionTarget): LinkAttributes {
+  const href = el.getAttribute('href');
+  return {
+    ...(href !== null ? { href } : {}),
+    inlineHandler: el.hasAttribute(INLINE_HANDLER_ATTR),
+    insideForm: el.closest('form') !== null,
+  };
+}
+
 export function dangerousActionContext(el: ActionTarget): string {
   const form = el.closest('form');
   // The label surfaces only, when the content is the user's own. The accessible NAME still counts:
@@ -61,6 +90,18 @@ export function dangerousActionContext(el: ActionTarget): string {
 }
 
 /**
+ * Does driving this element need `confirmDangerous`?
+ *
+ * The element decides, not its text alone: a `<a href>` with no handler and no form moves by GET
+ * and changes nothing, so the words in its label and its address are not evidence of a destructive
+ * act. The controls that CAN act — a button, a link with an `onclick`, an anchor inside a form —
+ * keep the text-only answer.
+ */
+export function requiresDangerousConfirmation(el: ActionTarget): boolean {
+  return classifyActionText(dangerousActionContext(el), getRole(el), linkAttributes(el));
+}
+
+/**
  * What pressing Enter in this field would actually trigger.
  *
  * Enter inside a form submits it, so the control being driven is the SUBMIT BUTTON, not the field
@@ -74,8 +115,4 @@ const SUBMIT_CONTROL_SELECTOR =
 export function submitControlFor(el: ActionTarget): HTMLElement | null {
   const found = el.closest('form')?.querySelector(SUBMIT_CONTROL_SELECTOR);
   return found instanceof HTMLElement ? found : null;
-}
-
-export function requiresDangerousConfirmation(text: string, role?: string): boolean {
-  return isDangerousActionText(text, role);
 }

@@ -2,7 +2,8 @@ import {
   ActionType,
   DANGEROUS_ACTION_CONFIRM_ARG,
   NATIVE_INPUT_ARG,
-  isDangerousActionText,
+  classifyActionText,
+  type LinkAttributes,
 } from '@reticlehq/core';
 import { asRecord, asString } from '@reticlehq/core';
 
@@ -34,8 +35,37 @@ function descriptorRole(value: unknown): string | undefined {
   return role !== undefined && role.length > 0 ? role : undefined;
 }
 
+/**
+ * The anchor facts the inspector reports, for the plain-navigation exemption.
+ *
+ * This path has no element to read, so the descriptor carries what the browser already computed
+ * (`inlineHandler`, `insideForm`) and the href it already exposes.
+ *
+ * The href is handed over only when the descriptor declares BOTH facts. A descriptor from a version
+ * that predates them describes a link whose handler it never looked for, and treating that silence
+ * as "no handler" would exempt a wired-up link on the strength of what nobody asked. Unknown
+ * refuses; proven narrows.
+ */
+function descriptorLinkAttributes(value: unknown): LinkAttributes {
+  const descriptor = asRecord(value);
+  const declared =
+    'boolean' === typeof descriptor['inlineHandler'] &&
+    'boolean' === typeof descriptor['insideForm'];
+  if (!declared) return {};
+  const href = asString(descriptor['href']);
+  return {
+    ...(href !== undefined ? { href } : {}),
+    inlineHandler: true === descriptor['inlineHandler'],
+    insideForm: true === descriptor['insideForm'],
+  };
+}
+
 function isDestructiveDescriptor(value: unknown): boolean {
-  return isDangerousActionText(descriptorText(value), descriptorRole(value));
+  return classifyActionText(
+    descriptorText(value),
+    descriptorRole(value),
+    descriptorLinkAttributes(value),
+  );
 }
 
 export function assertNotDestructive(
