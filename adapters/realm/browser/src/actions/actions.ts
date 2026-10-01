@@ -8,10 +8,7 @@ import {
 } from '@reticlehq/core';
 import { asSyntheticInput } from './synthetic/synthetic-input.js';
 import { echoRef, refs } from '@/dom/addressing/refs.js';
-import {
-  requiresDangerousConfirmation,
-  submitControlFor,
-} from './danger-context.js';
+import { requiresDangerousConfirmation, submitControlFor } from './danger-context.js';
 import { assertEditable, assertNotRichText, setNativeValue } from './value-input.js';
 import { getAccessibleName, getRole, isVisible, getStates } from '@/dom/a11y.js';
 import { elementHasHoverHandlers, identifyComponent } from '@/registry/stores/adapters.js';
@@ -361,8 +358,7 @@ function assertActionAllowed(
   const sourceDangerous =
     requiresDangerousConfirmation(el) ||
     (submitter !== null && requiresDangerousConfirmation(submitter));
-  const targetDangerous =
-    isActionTarget(dragTarget) && requiresDangerousConfirmation(dragTarget);
+  const targetDangerous = isActionTarget(dragTarget) && requiresDangerousConfirmation(dragTarget);
   if (
     canTrigger &&
     (sourceDangerous || targetDangerous) &&

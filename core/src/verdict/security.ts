@@ -161,9 +161,10 @@ const LINK_ROLES: ReadonlySet<string> = new Set(['link', 'generic']);
  */
 export function isPlainNavigationLink(role: string | undefined, attrs: LinkAttributes): boolean {
   if (role === undefined || !LINK_ROLES.has(role.trim().toLowerCase())) return false;
-  const href = attrs.href;
-  if (href === undefined || href.trim().length === 0 || '#' === href.trim()) return false;
-  if (attrs.inlineHandler === true) return false;
+  const href = attrs.href?.trim();
+  if (href === undefined || 0 === href.length) return false;
+  if ('#' === href) return false;
+  if (true === attrs.inlineHandler) return false;
   return attrs.insideForm !== true;
 }
 
