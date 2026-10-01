@@ -39,32 +39,38 @@ function descriptorRole(value: unknown): string | undefined {
  * The anchor facts the inspector reports, for the plain-navigation exemption.
  *
  * This path has no element to read, so the descriptor carries what the browser already computed
- * (`inlineHandler`, `insideForm`) and the href it already exposes.
+ * (`isAnchor`, `hasClickHandler`, `insideForm`) and the href it already exposes.
  *
- * The href is handed over only when the descriptor declares BOTH facts. A descriptor from a version
- * that predates them describes a link whose handler it never looked for, and treating that silence
- * as "no handler" would exempt a wired-up link on the strength of what nobody asked. Unknown
+ * Handed over only when the descriptor declares ALL THREE facts. A descriptor from a version that
+ * predates them describes a link whose anchor-ness and handler nobody checked, and treating that
+ * silence as "plain" would exempt a wired-up link on the strength of what nobody asked. Unknown
  * refuses; proven narrows.
  */
 function descriptorLinkAttributes(value: unknown): LinkAttributes {
   const descriptor = asRecord(value);
   const declared =
-    'boolean' === typeof descriptor['inlineHandler'] &&
+    'boolean' === typeof descriptor['isAnchor'] &&
+    'boolean' === typeof descriptor['hasClickHandler'] &&
     'boolean' === typeof descriptor['insideForm'];
   if (!declared) return {};
   const href = asString(descriptor['href']);
   return {
     ...(href !== undefined ? { href } : {}),
-    inlineHandler: true === descriptor['inlineHandler'],
+    isAnchor: true === descriptor['isAnchor'],
+    hasClickHandler: true === descriptor['hasClickHandler'],
     insideForm: true === descriptor['insideForm'],
   };
 }
 
-function isDestructiveDescriptor(value: unknown): boolean {
+/**
+ * `navigation` is false at a DRAG END. Dropping a row onto a link is not navigation, and a drop
+ * target is exactly what a link looks like, so that end is classified on its text alone.
+ */
+function isDestructiveDescriptor(value: unknown, navigation = true): boolean {
   return classifyActionText(
     descriptorText(value),
     descriptorRole(value),
-    descriptorLinkAttributes(value),
+    navigation ? descriptorLinkAttributes(value) : {},
   );
 }
 
@@ -92,7 +98,7 @@ export function assertDragNotDestructive(
   to: unknown,
 ): void {
   if (true === innerArgs[DANGEROUS_ACTION_CONFIRM_ARG]) return;
-  if (!isDestructiveDescriptor(from) && !isDestructiveDescriptor(to)) return;
+  if (!isDestructiveDescriptor(from, false) && !isDestructiveDescriptor(to, false)) return;
   throw new Error(
     `potentially destructive native action blocked; retry with args.${DANGEROUS_ACTION_CONFIRM_ARG}=true`,
   );

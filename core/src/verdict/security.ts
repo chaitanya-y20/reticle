@@ -123,15 +123,25 @@ export function isOpaqueOrigin(origin: string): boolean {
  * What the control's own ELEMENT says about whether pressing it can have an effect.
  *
  * The destructive-label pattern decides on the words a control exposes. Two of those words are the
- * element's structure rather than its label: an inline handler, and the form it belongs to. A
- * caller that has the element reads both and hands them over here; a caller that has only a
- * descriptor omits them, and then nothing is exempted.
+ * element's structure rather than its label: a handler, and the form it belongs to. A caller that
+ * has the element reads them and hands them over here; a caller that has only a descriptor must
+ * prove the same facts or nothing is exempted.
+ *
+ * `isAnchor` is a required fact, not a nicety. A `role="link"` is a free string any page can write,
+ * so `<div role="link" onclick="…">Delete account</div>` would otherwise be exempted on the
+ * strength of a claim the element does not support.
  */
 export interface LinkAttributes {
   /** The resolved `href`, when the control has one. */
   href?: string;
-  /** True when the element carries an inline event handler attribute, such as `onclick`. */
-  inlineHandler?: boolean;
+  /** True only when the element IS an anchor (`<a>`), never for a role an author spelled. */
+  isAnchor?: boolean;
+  /**
+   * True when the element carries a handler a caller could see: an inline attribute, or one a
+   * framework adapter reports on the fibre. Vanilla `addEventListener` is invisible to both, which
+   * is a named gap rather than a guarantee — see the note on `isPlainNavigationLink`.
+   */
+  hasClickHandler?: boolean;
   /** True when the control submits a form, or sits inside one. */
   insideForm?: boolean;
 }
@@ -146,7 +156,34 @@ export interface LinkAttributes {
 const LINK_ROLES: ReadonlySet<string> = new Set(['link', 'generic']);
 
 /**
- * An `<a href>` with no inline handler and no form of its own moves by GET.
+ * Schemes a link may carry and still count as navigation.
+ *
+ * `javascript:` and `data:` are the two that make an href EXECUTABLE, and an executable URL is an
+ * act however plain the anchor around it looks — the guard's own list of loopback and local-app
+ * schemes already exists because a scheme decides what a string means. A bare `mailto:` or `tel:`
+ * changes nothing by itself, but it is not navigation either, so it is not exempted: the allow-list
+ * is http(s) and relative, and everything else keeps the block.
+ */
+const NAVIGATION_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:']);
+
+/**
+ * True when following this href fetches a document rather than running something.
+ *
+ * Resolved against `location`'s own base where there is one, so a relative path (no scheme at all)
+ * and a protocol-relative `//host/path` are both readable. A `javascript:` href parses with that
+ * protocol and is refused here, which is the case an allow-list on the scheme exists for.
+ */
+function isNavigationHref(href: string): boolean {
+  if (0 === href.length || href.startsWith('#')) return false;
+  try {
+    return NAVIGATION_PROTOCOLS.has(new URL(href, 'http://navigation.invalid').protocol);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An `<a href>` that moves by GET, with nothing wired to it and no form of its own.
  *
  * The destructive-label pattern reads a control's `href` along with its text, which is right for a
  * button whose label is an icon — its `formAction` is the only place it says what it does. On an
@@ -154,18 +191,20 @@ const LINK_ROLES: ReadonlySet<string> = new Set(['link', 'generic']);
  * pointing at `/billing/payment` is refused today for the `payment` in the URL, and a same-origin
  * GET to that URL changes nothing on its own.
  *
- * `href="#"` is NOT exempted, and deliberately. A fragment href addresses the document you are
- * already on, so it is the shape an author reaches for when the link's real act lives somewhere
- * else — "inert href plus a handler" is the idiom, which makes `#` the one href that tells you
- * least. It stays classified on its text, the refusing direction.
+ * Honest about what it cannot see: a handler bound with `addEventListener` on a non-framework page
+ * leaves no trace the DOM will answer, so such a link still takes the exemption. The two cases this
+ * DOES catch are the two a page can state — an inline attribute, and a framework adapter's own
+ * reading of the element's props. `href="#"` is refused as well, because an inert fragment href
+ * plus a handler is the idiom for "the act lives elsewhere", which makes it the href that tells you
+ * least.
  */
 export function isPlainNavigationLink(role: string | undefined, attrs: LinkAttributes): boolean {
   if (role === undefined || !LINK_ROLES.has(role.trim().toLowerCase())) return false;
+  if (true !== attrs.isAnchor) return false;
+  if (true === attrs.hasClickHandler) return false;
+  if (true === attrs.insideForm) return false;
   const href = attrs.href?.trim();
-  if (href === undefined || 0 === href.length) return false;
-  if ('#' === href) return false;
-  if (true === attrs.inlineHandler) return false;
-  return attrs.insideForm !== true;
+  return href !== undefined && isNavigationHref(href);
 }
 
 /**

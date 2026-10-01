@@ -358,7 +358,10 @@ function assertActionAllowed(
   const sourceDangerous =
     requiresDangerousConfirmation(el) ||
     (submitter !== null && requiresDangerousConfirmation(submitter));
-  const targetDangerous = isActionTarget(dragTarget) && requiresDangerousConfirmation(dragTarget);
+  // A drag END is not navigation however much it looks like a link, so it is classified on its text
+  // alone. Dropping a row onto "Pay" is destructive even when the drop target is a plain anchor.
+  const targetDangerous =
+    isActionTarget(dragTarget) && requiresDangerousConfirmation(dragTarget, false);
   if (
     canTrigger &&
     (sourceDangerous || targetDangerous) &&

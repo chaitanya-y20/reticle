@@ -16,47 +16,71 @@
  * exemption would let `<div role="link">Delete account</div>` through.
  */
 import { describe, expect, it } from 'vitest';
-import { classifyActionText, isDangerousActionText, isPlainNavigationLink } from './security.js';
+import {
+  classifyActionText,
+  isDangerousActionText,
+  isPlainNavigationLink,
+  type LinkAttributes,
+} from './security.js';
 
 describe('a plain navigation link is not destructive', () => {
-  it('does not block a link whose text and href carry a money word', () => {
-    expect(
-      classifyActionText('Orders & invoices /billing/payment', 'link', {
-        href: '/billing/payment',
-      }),
-    ).toBe(false);
-    expect(classifyActionText('Purchase history', 'link', { href: '/purchase/history' })).toBe(
-      false,
-    );
+  const link = (extra: Partial<LinkAttributes> = {}): LinkAttributes => ({
+    href: '/billing/payment',
+    isAnchor: true,
+    hasClickHandler: false,
+    insideForm: false,
+    ...extra,
   });
 
-  it('still blocks a link with an inline handler, which can do anything', () => {
+  it('does not block a link whose text and href carry a money word', () => {
+    expect(classifyActionText('Orders & invoices /billing/payment', 'link', link())).toBe(false);
     expect(
-      classifyActionText('Orders & invoices /billing/payment', 'link', {
-        href: '/billing/payment',
-        inlineHandler: true,
-      }),
+      classifyActionText('Purchase history', 'link', link({ href: '/purchase/history' })),
+    ).toBe(false);
+  });
+
+  it('still blocks a link with a handler, which can do anything', () => {
+    expect(
+      classifyActionText(
+        'Orders & invoices /billing/payment',
+        'link',
+        link({ hasClickHandler: true }),
+      ),
     ).toBe(true);
   });
 
   it('still blocks a link inside a form, whose href is not its whole effect', () => {
     expect(
-      classifyActionText('Purchase history', 'link', {
-        href: '/purchase/history',
-        insideForm: true,
-      }),
+      classifyActionText('Purchase history /purchase/history', 'link', link({ insideForm: true })),
     ).toBe(true);
   });
 
   it('still blocks a role=link on an element that is not an anchor', () => {
-    // No href attribute at all: the role is a claim, and nothing in the element supports it.
-    expect(classifyActionText('Delete account /purchase/now', 'link', {})).toBe(true);
+    // `role` is a free string; only the element itself may grant the exemption.
+    expect(
+      classifyActionText('Delete account /purchase/now', 'link', link({ isAnchor: false })),
+    ).toBe(true);
   });
 
-  it('does not exempt an anchor that navigates nowhere', () => {
-    // An `<a>` without the attribute is role `generic` and moves nowhere, so its label decides.
-    expect(classifyActionText('Delete account', 'generic', { href: '' })).toBe(true);
-    expect(isPlainNavigationLink('generic', { href: '' })).toBe(false);
+  it('still blocks an executable href — a scheme decides what a string means', () => {
+    for (const href of ['javascript:void 0', 'data:text/html,<button>Delete</button>']) {
+      expect(classifyActionText('Delete account', 'link', link({ href }))).toBe(true);
+    }
+    // The money word in the TEXT is what blocks here, since the scheme already refused the
+    // exemption; the point is that the scheme did not grant it in the first place.
+    expect(
+      classifyActionText(
+        'Orders & invoices /billing/payment',
+        'link',
+        link({ href: 'javascript:void 0' }),
+      ),
+    ).toBe(true);
+  });
+
+  it('still blocks an href that is not navigation', () => {
+    for (const href of ['mailto:billing@example.com', 'tel:+1234', '#', '']) {
+      expect(classifyActionText('Delete account', 'link', link({ href }))).toBe(true);
+    }
   });
 
   it('still blocks a BUTTON whose label is money-moving', () => {
@@ -72,25 +96,46 @@ describe('a plain navigation link is not destructive', () => {
 });
 
 describe('isPlainNavigationLink', () => {
-  it('accepts an anchor with an href and nothing wired to it', () => {
-    expect(isPlainNavigationLink('link', { href: '/refund-policy' })).toBe(true);
-    expect(isPlainNavigationLink('generic', { href: '/refund-policy' })).toBe(true);
-    expect(isPlainNavigationLink('LINK', { href: '/refund-policy' })).toBe(true);
+  it('accepts an anchor with a navigation href and nothing wired to it', () => {
+    for (const role of ['link', 'generic', 'LINK']) {
+      expect(
+        isPlainNavigationLink(role, {
+          href: '/refund-policy',
+          isAnchor: true,
+          hasClickHandler: false,
+          insideForm: false,
+        }),
+      ).toBe(true);
+    }
   });
 
-  it('refuses href="#" — the inert-pairing idiom, not evidence of a plain navigation', () => {
-    expect(isPlainNavigationLink('link', { href: '#' })).toBe(false);
+  it('accepts an absolute and a protocol-relative href', () => {
+    for (const href of ['https://example.test/help', '//example.test/help']) {
+      expect(isPlainNavigationLink('link', { href, isAnchor: true })).toBe(true);
+    }
   });
 
   it('refuses every other role', () => {
     for (const role of ['button', 'menuitem', 'checkbox', 'option', 'radio', undefined]) {
-      expect(isPlainNavigationLink(role, { href: '/billing/payment' })).toBe(false);
+      expect(isPlainNavigationLink(role, { href: '/billing/payment', isAnchor: true })).toBe(false);
     }
   });
 
-  it('refuses an anchor with a handler or a form around it', () => {
-    expect(isPlainNavigationLink('link', { href: '/pay', inlineHandler: true })).toBe(false);
-    expect(isPlainNavigationLink('link', { href: '/pay', insideForm: true })).toBe(false);
-    expect(isPlainNavigationLink('link', {})).toBe(false);
+  it('refuses an element that only claims to be a link', () => {
+    expect(isPlainNavigationLink('link', { href: '/pay', isAnchor: false })).toBe(false);
+    expect(isPlainNavigationLink('link', { href: '/pay' })).toBe(false);
+  });
+
+  it('refuses an anchor with a handler, a form, or an unusable href', () => {
+    expect(
+      isPlainNavigationLink('link', { href: '/pay', isAnchor: true, hasClickHandler: true }),
+    ).toBe(false);
+    expect(isPlainNavigationLink('link', { href: '/pay', isAnchor: true, insideForm: true })).toBe(
+      false,
+    );
+    expect(isPlainNavigationLink('link', { isAnchor: true })).toBe(false);
+    expect(isPlainNavigationLink('link', { href: 'javascript:void 0', isAnchor: true })).toBe(
+      false,
+    );
   });
 });

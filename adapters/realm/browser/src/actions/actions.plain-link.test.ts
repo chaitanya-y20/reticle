@@ -46,6 +46,38 @@ describe('a plain navigation link is clicked without confirming', () => {
     await expect(executeAction(refTo('#pay'), 'click')).rejects.toThrow(/confirmDangerous/);
   });
 
+  it('still blocks a link whose href is executable rather than navigation', async () => {
+    document.body.innerHTML = '<a id="js" href="javascript:void 0">Delete account</a>';
+    await expect(executeAction(refTo('#js'), 'click')).rejects.toThrow(/confirmDangerous/);
+  });
+
+  /**
+   * A plain link whose TEXT also matches is still exempted — that is the issue's own wording
+   * ("whose href or text contains 'payment'"), and the act is still only a GET.
+   */
+  it('does not block a plain link whose text reads destructively', async () => {
+    document.body.innerHTML = '<a id="t" href="/help/delete-account">Delete account</a>';
+    await expect(executeAction(refTo('#t'), 'click')).resolves.toBeDefined();
+  });
+
+  it('still blocks a role=link on a div, which is not an anchor', async () => {
+    document.body.innerHTML = '<div id="fake" role="link" tabindex="0">Delete account</div>';
+    await expect(executeAction(refTo('#fake'), 'click')).rejects.toThrow(/confirmDangerous/);
+  });
+
+  /**
+   * A drag END is not navigation. A drop target is exactly what a link looks like, so the end of a
+   * drag keeps the text-only answer — dropping a row onto a plainly-styled "Pay" is still a payment.
+   */
+  it('still blocks a DRAG onto a plain-looking link', async () => {
+    document.body.innerHTML =
+      '<div id="row" draggable="true">Row</div>' +
+      '<a id="drop" href="/billing/payment">Pay now</a>';
+    await expect(executeAction(refTo('#row'), 'drag', { toRef: refTo('#drop') })).rejects.toThrow(
+      /confirmDangerous/,
+    );
+  });
+
   it('still blocks a submit control inside a money-moving form', async () => {
     document.body.innerHTML =
       '<form action="/api/refund"><button type="submit" id="go">Issue refund</button></form>';

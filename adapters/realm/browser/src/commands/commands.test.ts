@@ -84,18 +84,21 @@ describe('command registry (driven by the bridge)', () => {
     document.body.innerHTML =
       '<a id="plain" href="/billing/payment">Orders</a>' +
       '<a id="wired" href="/purchase/confirm" onclick="void 0">Purchase</a>' +
+      '<div id="fake" role="link">Delete account</div>' +
       '<form action="/api/refund"><a id="inform" href="/help">Help</a></form>';
-    const read = (selector: string): { inlineHandler: boolean; insideForm: boolean } => {
+    const read = (selector: string): Record<string, unknown> => {
       const el = document.querySelector(selector);
       if (!(el instanceof HTMLElement)) throw new Error(`no element for ${selector}`);
-      return run(ReticleCommand.INSPECT, { ref: refs.refFor(el) }) as {
-        inlineHandler: boolean;
-        insideForm: boolean;
-      };
+      return run(ReticleCommand.INSPECT, { ref: refs.refFor(el) }) as Record<string, unknown>;
     };
-    expect(read('#plain')).toMatchObject({ inlineHandler: false, insideForm: false });
-    expect(read('#wired')).toMatchObject({ inlineHandler: true, insideForm: false });
-    expect(read('#inform')).toMatchObject({ inlineHandler: false, insideForm: true });
+    expect(read('#plain')).toMatchObject({
+      isAnchor: true,
+      hasClickHandler: false,
+      insideForm: false,
+    });
+    expect(read('#wired')).toMatchObject({ isAnchor: true, hasClickHandler: true });
+    expect(read('#fake')).toMatchObject({ isAnchor: false });
+    expect(read('#inform')).toMatchObject({ isAnchor: true, insideForm: true });
   });
 
   it('INSPECT returns scroll metrics for a ref', () => {
