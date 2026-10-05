@@ -66,9 +66,65 @@ describe('assertNotDestructive', () => {
       { ...plain, isAnchor: false, role: 'button' },
       { ...plain, insideForm: true },
       { ...plain, href: '#' },
+      { ...plain, nonGetMarker: true },
     ]) {
       expect(() => assertNotDestructive(ActionType.CLICK, {}, bad)).toThrow(/confirmDangerous/);
     }
+  });
+
+  /**
+   * The end-to-end half of the INSPECT marker, on the descriptor the client actually produces.
+   *
+   * This path has no element to read, so the descriptor is the only thing carrying the marker, and
+   * the fixture has to be the shape in which the marker is load-bearing. That shape needs a DEFINITE
+   * `hasClickHandler: false`: `descriptorLinkAttributes` requires `isAnchor`, `hasClickHandler` and
+   * `insideForm` to all be booleans and returns `{}` otherwise, so a descriptor that omits the
+   * handler fact is refused by the absence alone and the marker is never read. Only with the three
+   * facts declared does the marker become the one thing that refuses this link — the href reads as a
+   * GET and the handler reading is a clean `false`, so without the marker it would be exempted.
+   *
+   * The browser-side test that INSPECT puts the field on the descriptor is in
+   * `adapters/realm/browser/src/commands/commands.test.ts`.
+   */
+  it('blocks the descriptor INSPECT produces for a data-turbo-method link', () => {
+    expect(() =>
+      assertNotDestructive(
+        ActionType.CLICK,
+        {},
+        {
+          text: 'Orders & invoices',
+          role: 'link',
+          href: '/billing/payment',
+          isAnchor: true,
+          hasClickHandler: false,
+          insideForm: false,
+          nonGetMarker: true,
+        },
+      ),
+    ).toThrow(/confirmDangerous/);
+  });
+
+  /**
+   * The control for the test above: the SAME descriptor with the marker absent is exempted.
+   *
+   * Without this the pair proves nothing — it is what shows the marker, and not the text or the
+   * other three facts, is what refuses the link.
+   */
+  it('exempts that same descriptor when the non-GET marker is absent', () => {
+    expect(() =>
+      assertNotDestructive(
+        ActionType.CLICK,
+        {},
+        {
+          text: 'Orders & invoices',
+          role: 'link',
+          href: '/billing/payment',
+          isAnchor: true,
+          hasClickHandler: false,
+          insideForm: false,
+        },
+      ),
+    ).not.toThrow();
   });
 
   it('keeps the old answer for a descriptor that carries no anchor facts', () => {

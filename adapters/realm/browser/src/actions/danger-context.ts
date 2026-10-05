@@ -44,15 +44,13 @@ function holdsUserText(el: ActionTarget): boolean {
 }
 
 /**
- * True when the element is marked for a framework that turns the click into a non-GET request.
+ * Attributes that mark an element for a framework that turns a click into a non-GET request.
  *
- * Rails' `link_to method: :delete`, Turbo, and UJS all render the same shape: an `<a href>` that
- * looks like a GET, carries no handler an attribute check can see, and is intercepted in script to
- * issue a DELETE. htmx uses `hx-delete`/`hx-post`/`hx-put`/`hx-patch` the same way. The `href` and
- * the absent handler both say "plain navigation", so without reading these the anchor is exempted
- * and the click destroys something.
+ * Exported because two callers classify the same anchor and must agree: this module (the live
+ * element) and `commands.ts` (the INSPECT descriptor the server-side guard reads with no element in
+ * reach). A marker that one reads and the other does not is a hole in whichever path is blind.
  */
-const NON_GET_METHOD_ATTRS = [
+export const NON_GET_METHOD_ATTRS = [
   'data-method',
   'data-turbo-method',
   'data-remote',
@@ -62,7 +60,16 @@ const NON_GET_METHOD_ATTRS = [
   'hx-patch',
 ] as const;
 
-function hasNonGetMethodMarker(el: ActionTarget): boolean {
+/**
+ * True when the element is marked for a framework that turns the click into a non-GET request.
+ *
+ * Rails' `link_to method: :delete`, Turbo, and UJS all render the same shape: an `<a href>` that
+ * looks like a GET, carries no handler an attribute check can see, and is intercepted in script to
+ * issue a DELETE. htmx uses `hx-delete`/`hx-post`/`hx-put`/`hx-patch` the same way. The `href` and
+ * the absent handler both say "plain navigation", so without reading these the anchor is exempted
+ * and the click destroys something.
+ */
+export function hasNonGetMethodMarker(el: Element): boolean {
   return NON_GET_METHOD_ATTRS.some((name) => el.hasAttribute(name));
 }
 

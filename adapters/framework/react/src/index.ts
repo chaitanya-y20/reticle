@@ -345,10 +345,15 @@ export function hasHoverHandlers(el: Element): boolean {
  *
  * Three-valued on purpose:
  * - `true`  a click-ish handler was found on the element or an ancestor within `MAX_HANDLER_WALK`.
- * - `false` the walk reached the top of the fibre tree and every host on the way was clean, which is
- *           a definite handlerless reading.
- * - `undefined` no fibre could be read at all, or the walk hit its depth bound without reaching the
- *           top. Either way the absence of a handler is unproven, and the guard refuses on that.
+ * - `undefined` the walk finished (or hit its bound) with no handler in any fibre's props. This is
+ *           NOT `false`: props are the only thing a fibre exposes, and a listener bound outside them
+ *           — `ref.addEventListener('click', …)`, or one on `document` that event delegation
+ *           carries — is invisible here and runs on the click all the same. Reaching the top of the
+ *           tree proves nothing about listeners that were never props, so the honest answer is "a
+ *           reading was taken and it cannot rule a handler out", which keeps the block.
+ *
+ * There is deliberately no `false`. `hasClickHandler` can prove a handler EXISTS, never that one is
+ * ABSENT, and the guard must not be handed an absence this function did not observe.
  */
 export function hasClickHandler(el: Element): boolean | undefined {
   let fiber = getFiber(el);
@@ -368,7 +373,7 @@ export function hasClickHandler(el: Element): boolean | undefined {
     fiber = fiber.return;
   }
 
-  return false;
+  return undefined;
 }
 
 import { installRenderMeter } from './render-meter.js';

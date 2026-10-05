@@ -134,6 +134,34 @@ describe('command registry (driven by the bridge)', () => {
     expect('hasClickHandler' in read).toBe(false);
   });
 
+  /**
+   * A non-GET marker must survive INSPECT, or the server-side guard is blind to it.
+   *
+   * `assertNotDestructive` classifies the DESCRIPTOR with no element in reach, so a marker the
+   * descriptor does not carry is a marker that guard cannot act on. `data-turbo-method="delete"` on
+   * an otherwise plain `<a href>` is the exact shape: the href reads as a GET and no handler is
+   * visible, so without the field on the descriptor the link is exempted and the click destroys.
+   *
+   * The end-to-end half (descriptor -> `assertNotDestructive`) lives in
+   * `server/src/surface/tools/act/act-danger.test.ts`; the browser package cannot import the server.
+   */
+  it('INSPECT carries the non-GET marker on the descriptor', () => {
+    document.body.innerHTML =
+      '<a id="turbo" href="/account" data-turbo-method="delete">Delete account</a>';
+    const el = document.querySelector('#turbo');
+    if (!(el instanceof HTMLElement)) throw new Error('fixture element missing');
+    const read = run(ReticleCommand.INSPECT, { ref: refs.refFor(el) }) as Record<string, unknown>;
+    expect(read).toMatchObject({ isAnchor: true, nonGetMarker: true });
+  });
+
+  it('INSPECT omits the non-GET marker for a link that has none', () => {
+    document.body.innerHTML = '<a id="plain" href="/billing/payment">Orders</a>';
+    const el = document.querySelector('#plain');
+    if (!(el instanceof HTMLElement)) throw new Error('fixture element missing');
+    const read = run(ReticleCommand.INSPECT, { ref: refs.refFor(el) }) as Record<string, unknown>;
+    expect('nonGetMarker' in read).toBe(false);
+  });
+
   it('INSPECT returns scroll metrics for a ref', () => {
     document.body.innerHTML = '<div style="overflow-y: auto; height: 100px;">content</div>';
     const div = document.querySelector('div') as HTMLDivElement;

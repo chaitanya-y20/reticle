@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { act, createElement, useState } from 'react';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { act, createElement, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ComponentStateReason, type ComponentStateResult } from '@reticlehq/core';
 import { identify, readState, hasHoverHandlers, hasClickHandler } from './index.js';
@@ -220,60 +220,150 @@ describe('react adapter hasHoverHandlers', () => {
 });
 
 describe('react adapter hasClickHandler', () => {
-  /** An element whose own host fiber carries `props`, with `ancestors` above it. */
-  function withAncestors(props: unknown, ancestors: Array<Record<string, unknown>> = []): Element {
-    const el = document.createElement('a');
-    let fiber: Record<string, unknown> | null = null;
-    for (const ancestor of ancestors) {
-      fiber = { return: fiber, type: 'div', elementType: 'div', memoizedProps: ancestor };
-    }
-    const host: Record<string, unknown> = { return: fiber, type: 'a', elementType: 'a' };
-    if (props !== undefined) host['memoizedProps'] = props;
-    (el as unknown as Record<string, unknown>)['__reactFiber$test'] = host;
-    return el;
-  }
-
-  it('returns false when the element and every ancestor are clean', () => {
-    expect(hasClickHandler(withAncestors({ href: '/billing' }, [{}, {}]))).toBe(false);
+  /**
+   * Real React renders, not hand-built fibres.
+   *
+   * A synthetic `__reactFiber$` object is a model of what React's tree looks like, and a model that
+   * drifts from the real thing tests the model. These render with `createRoot` so the fibre this
+   * walks is the one React actually built, and the `ref.addEventListener` cases below are only
+   * meaningful against a real tree: the point of them is that React's props do NOT contain the
+   * listener, which a hand-built fibre cannot demonstrate.
+   */
+  let container: HTMLDivElement;
+  let reactRoot: ReturnType<typeof createRoot> | null = null;
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
   });
+  afterEach(() => {
+    // Unmount before dropping the container: a root left mounted keeps its hooks and effects alive
+    // for the rest of the run, and an effect that registered a `document` listener would fire into
+    // later tests.
+    act(() => reactRoot?.unmount());
+    reactRoot = null;
+    container.remove();
+  });
+
+  const root = (node: ReactElement): HTMLElement => {
+    reactRoot = createRoot(container);
+    act(() => reactRoot?.render(node));
+    return container;
+  };
 
   it('returns undefined when no fiber can be read at all', () => {
     expect(hasClickHandler(document.createElement('a'))).toBeUndefined();
   });
 
-  it('returns true for the element own onClick', () => {
-    expect(hasClickHandler(withAncestors({ onClick: () => undefined }))).toBe(true);
+  it('returns undefined for a rendered link with no handler anywhere, because a listener bound outside props is invisible', () => {
+    root(createElement('a', { href: '/billing', id: 'plain' }, 'Orders'));
+    const el = container.querySelector('#plain');
+    expect(el).not.toBeNull();
+    if (null === el) return;
+    // NOT `false`: the walk can prove a handler exists, never that one is absent.
+    expect(hasClickHandler(el)).toBeUndefined();
   });
 
-  // The five shapes a real React app wires a destructive link with. Each one reads `false` from an
-  // element-only `onClick` check, and `false` is the value that hands the link the exemption.
+  it('returns true for the element own onClick', () => {
+    root(createElement('a', { href: '/x', id: 'own', onClick: () => undefined }, 'Delete account'));
+    const el = container.querySelector('#own');
+    if (null === el) throw new Error('fixture missing');
+    expect(hasClickHandler(el)).toBe(true);
+  });
+
   it('returns true for a PARENT onClick, the event-delegation shape most React apps use', () => {
-    expect(
-      hasClickHandler(withAncestors({ href: '/delete-account' }, [{ onClick: () => undefined }])),
-    ).toBe(true);
+    root(
+      createElement(
+        'div',
+        { onClick: () => undefined },
+        createElement('a', { href: '/delete-account', id: 'delegated' }, 'Delete account'),
+      ),
+    );
+    const el = container.querySelector('#delegated');
+    if (null === el) throw new Error('fixture missing');
+    expect(hasClickHandler(el)).toBe(true);
   });
 
   it('returns true for a click handler on an ancestor further up than the first', () => {
-    expect(hasClickHandler(withAncestors({}, [{}, { onClick: () => undefined }]))).toBe(true);
+    root(
+      createElement(
+        'div',
+        { onClick: () => undefined },
+        createElement(
+          'div',
+          null,
+          createElement('a', { href: '/x', id: 'deep' }, 'Delete account'),
+        ),
+      ),
+    );
+    const el = container.querySelector('#deep');
+    if (null === el) throw new Error('fixture missing');
+    expect(hasClickHandler(el)).toBe(true);
   });
 
   for (const key of ['onMouseDown', 'onMouseUp', 'onPointerDown', 'onPointerUp'] as const) {
     it(`returns true when the element declares ${key}`, () => {
-      expect(hasClickHandler(withAncestors({ [key]: () => undefined }))).toBe(true);
+      root(createElement('a', { href: '/x', id: 'own', [key]: () => undefined }, 'Delete account'));
+      const el = container.querySelector('#own');
+      if (null === el) throw new Error('fixture missing');
+      expect(hasClickHandler(el)).toBe(true);
     });
 
     it(`returns true when a parent declares ${key}`, () => {
-      expect(hasClickHandler(withAncestors({}, [{ [key]: () => undefined }]))).toBe(true);
+      root(
+        createElement(
+          'div',
+          { [key]: () => undefined },
+          createElement('a', { href: '/x', id: 'child' }, 'Delete account'),
+        ),
+      );
+      const el = container.querySelector('#child');
+      if (null === el) throw new Error('fixture missing');
+      expect(hasClickHandler(el)).toBe(true);
     });
   }
 
-  it('ignores a non-function handler prop', () => {
-    expect(hasClickHandler(withAncestors({ onClick: 'nope' }))).toBe(false);
+  it('returns undefined for a listener bound with ref.addEventListener, which lives outside props', () => {
+    function Wired(): ReturnType<typeof createElement> {
+      const ref = useRef<HTMLAnchorElement>(null);
+      useEffect(() => {
+        ref.current?.addEventListener('click', (e) => e.preventDefault());
+      }, []);
+      return createElement('a', { href: '/delete-account', id: 'wired', ref }, 'Delete account');
+    }
+    root(createElement(Wired));
+    const el = container.querySelector('#wired');
+    if (null === el) throw new Error('fixture missing');
+    // The listener exists and runs on a click, but React's props do not carry it. Answering `false`
+    // here is what let this link take the exemption.
+    expect(hasClickHandler(el)).toBeUndefined();
   });
 
-  it('returns undefined rather than false when the walk hits its depth bound', () => {
-    const deep: Array<Record<string, unknown>> = Array.from({ length: 70 }, () => ({}));
-    expect(hasClickHandler(withAncestors({}, deep))).toBeUndefined();
+  it('returns undefined for a document-level delegated listener', () => {
+    function DocumentWired(): ReturnType<typeof createElement> {
+      useEffect(() => {
+        const onDoc = (e: Event): void => e.preventDefault();
+        document.addEventListener('click', onDoc);
+        return () => document.removeEventListener('click', onDoc);
+      }, []);
+      return createElement('a', { href: '/delete-account', id: 'doc' }, 'Delete account');
+    }
+    root(createElement(DocumentWired));
+    const el = container.querySelector('#doc');
+    if (null === el) throw new Error('fixture missing');
+    expect(hasClickHandler(el)).toBeUndefined();
+  });
+
+  it('ignores a non-function handler prop', () => {
+    root(
+      createElement(
+        'a',
+        { href: '/x', id: 'nonfn', onClick: 'nope' } as Record<string, unknown>,
+        'X',
+      ),
+    );
+    const el = container.querySelector('#nonfn');
+    if (null === el) throw new Error('fixture missing');
+    expect(hasClickHandler(el)).toBeUndefined();
   });
 });
 
