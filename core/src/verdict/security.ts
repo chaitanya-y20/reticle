@@ -209,16 +209,25 @@ function isNavigationHref(href: string): boolean {
  * changes nothing on its own.
  *
  * The scheme is checked, not the origin. `javascript:` and `data:` are refused by `isNavigationHref`,
- * so an executable URL never takes the exemption, but a cross-origin `https:` href does — the guard
- * does not compare the href's origin against the page's.
+ * so an executable URL never takes the exemption, but a cross-origin `https:` href does, because the
+ * guard does not compare the href's origin against the page's.
  *
- * Honest about what it cannot see: a handler bound with `addEventListener` and reachable only through
- * a closure the DOM will not answer for leaves no trace, so such a link can still take the exemption.
- * What this DOES catch is every case a page states — an inline attribute, a framework adapter's own
- * reading of the element's props including the delegated handler on an ancestor, and the attributes
- * that mark an anchor for a framework-rewritten non-GET request. `href="#"` is refused as well,
- * because an inert fragment href plus a handler is the idiom for "the act lives elsewhere", which
- * makes it the href that tells you least.
+ * This predicate is currently unreachable in production, which is stated here rather than left for a
+ * reader to discover. It needs a definite `hasClickHandler: false`, and no shipped producer supplies
+ * one: React answers `true` or `undefined`, since props are the only thing a fibre exposes and it
+ * can prove a handler exists but never that none does, and no other adapter registers a probe, so a
+ * page with no adapter reads `undefined` as well. What this is, then, is the plumbing for the
+ * exemption, held in the safe direction: it grants one only when a source can honestly prove a link
+ * has no handler, and nothing can today. The tests that show it exempting hand the predicate a
+ * definite `false` (the browser ones through a probe that reads the element directly), which models a
+ * page where that reading is obtainable.
+ *
+ * The checks below stay, because each is what keeps the exemption narrow on the day a producer
+ * exists: the href must use a scheme that fetches a document, the link must be a real anchor and not
+ * a `role="link"` on a `div`, it must not sit inside a form, and it must not carry a framework's
+ * marker for a rewritten non-GET request. `href="#"` is refused as well, because an inert fragment
+ * href plus a handler is the idiom for "the act lives elsewhere", which makes it the href that tells
+ * you least.
  */
 export function isPlainNavigationLink(role: string | undefined, attrs: LinkAttributes): boolean {
   if (role === undefined || !LINK_ROLES.has(role.trim().toLowerCase())) return false;
