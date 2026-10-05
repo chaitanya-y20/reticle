@@ -65,6 +65,11 @@ function descriptorLinkAttributes(value: unknown): LinkAttributes {
       ? { hasClickHandler: true === descriptor['hasClickHandler'] }
       : {}),
     insideForm: true === descriptor['insideForm'],
+    // Absent is the safe default here: a producer that does not read the markers never declares
+    // this, and an unread marker must not be read as "no marker" any more than an unread handler
+    // may be read as "no handler". The browser caller only sets it when it saw one, so `true` is
+    // always a positive reading.
+    ...(true === descriptor['nonGetMarker'] ? { nonGetMarker: true } : {}),
   };
 }
 

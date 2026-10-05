@@ -191,4 +191,39 @@ describe('isPlainNavigationLink', () => {
       ).toBe(true);
     });
   });
+
+  describe('an anchor marked for a framework-rewritten non-GET request keeps its block', () => {
+    const marked = (extra: Partial<LinkAttributes> = {}): LinkAttributes => ({
+      href: '/account/delete',
+      isAnchor: true,
+      hasClickHandler: false,
+      insideForm: false,
+      ...extra,
+    });
+
+    it('refuses when the element carries a non-GET marker', () => {
+      // Rails/Turbo/UJS `link_to method: :delete` render this shape: an href that says GET, no
+      // handler an attribute check can see, and a script that turns the click into a DELETE.
+      expect(isPlainNavigationLink('link', marked({ nonGetMarker: true }))).toBe(false);
+      expect(
+        classifyActionText(
+          'Delete account /account/delete',
+          'link',
+          marked({ nonGetMarker: true }),
+        ),
+      ).toBe(true);
+    });
+
+    it('exempts when the marker was read and found absent', () => {
+      expect(isPlainNavigationLink('link', marked({ nonGetMarker: false }))).toBe(true);
+    });
+
+    it('exempts when the marker was never read at all', () => {
+      // Absent differs from present-and-true: a caller that does not look at the markers loses
+      // nothing it would otherwise have had, because only a positive reading refuses.
+      const noMarkerReading: LinkAttributes = { ...marked() };
+      expect('nonGetMarker' in noMarkerReading).toBe(false);
+      expect(isPlainNavigationLink('link', noMarkerReading)).toBe(true);
+    });
+  });
 });

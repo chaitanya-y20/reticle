@@ -132,4 +132,39 @@ describe('a plain navigation link is clicked without confirming', () => {
 
     await expect(executeAction(refTo('#wired'), 'click')).rejects.toThrow(/confirmDangerous/);
   });
+
+  /**
+   * A framework that rewrites the click into a non-GET request.
+   *
+   * Rails' `link_to method: :delete`, Turbo and UJS all render an href that reads as a GET, with no
+   * handler any attribute check can find, and intercept the click in script to issue a DELETE. The
+   * probe below answers "handlerless" exactly as it does for a genuinely plain link, so the marker
+   * is the only thing standing between this anchor and the exemption.
+   */
+  it('blocks a link marked data-method="delete" even when a probe reads it handlerless', async () => {
+    registerAdapter(handlerlessProbe());
+    document.body.innerHTML =
+      '<a id="rails" href="/account" data-method="delete">Delete account</a>';
+    await expect(executeAction(refTo('#rails'), 'click')).rejects.toThrow(/confirmDangerous/);
+  });
+
+  it('blocks a link marked data-turbo-method="delete"', async () => {
+    registerAdapter(handlerlessProbe());
+    document.body.innerHTML =
+      '<a id="turbo" href="/account" data-turbo-method="delete">Delete account</a>';
+    await expect(executeAction(refTo('#turbo'), 'click')).rejects.toThrow(/confirmDangerous/);
+  });
+
+  it('blocks a link marked hx-delete', async () => {
+    registerAdapter(handlerlessProbe());
+    document.body.innerHTML =
+      '<a id="htmx" href="/account" hx-delete="/account">Delete account</a>';
+    await expect(executeAction(refTo('#htmx'), 'click')).rejects.toThrow(/confirmDangerous/);
+  });
+
+  it('still exempts a plain link that carries no marker', async () => {
+    registerAdapter(handlerlessProbe());
+    document.body.innerHTML = '<a id="plain" href="/billing/payment">Orders &amp; invoices</a>';
+    await expect(executeAction(refTo('#plain'), 'click')).resolves.toBeDefined();
+  });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ComponentStateReason, type ComponentStateResult } from '@reticlehq/core';
-import { identify, readState, hasHoverHandlers } from './index.js';
+import { identify, readState, hasHoverHandlers, hasClickHandler } from './index.js';
 
 function PayButton(): null {
   return null;
@@ -216,6 +216,64 @@ describe('react adapter hasHoverHandlers', () => {
 
   it('returns false when a hover key is present but not a function', () => {
     expect(hasHoverHandlers(withProps({ onMouseEnter: 'nope' }))).toBe(false);
+  });
+});
+
+describe('react adapter hasClickHandler', () => {
+  /** An element whose own host fiber carries `props`, with `ancestors` above it. */
+  function withAncestors(props: unknown, ancestors: Array<Record<string, unknown>> = []): Element {
+    const el = document.createElement('a');
+    let fiber: Record<string, unknown> | null = null;
+    for (const ancestor of ancestors) {
+      fiber = { return: fiber, type: 'div', elementType: 'div', memoizedProps: ancestor };
+    }
+    const host: Record<string, unknown> = { return: fiber, type: 'a', elementType: 'a' };
+    if (props !== undefined) host['memoizedProps'] = props;
+    (el as unknown as Record<string, unknown>)['__reactFiber$test'] = host;
+    return el;
+  }
+
+  it('returns false when the element and every ancestor are clean', () => {
+    expect(hasClickHandler(withAncestors({ href: '/billing' }, [{}, {}]))).toBe(false);
+  });
+
+  it('returns undefined when no fiber can be read at all', () => {
+    expect(hasClickHandler(document.createElement('a'))).toBeUndefined();
+  });
+
+  it('returns true for the element own onClick', () => {
+    expect(hasClickHandler(withAncestors({ onClick: () => undefined }))).toBe(true);
+  });
+
+  // The five shapes a real React app wires a destructive link with. Each one reads `false` from an
+  // element-only `onClick` check, and `false` is the value that hands the link the exemption.
+  it('returns true for a PARENT onClick, the event-delegation shape most React apps use', () => {
+    expect(
+      hasClickHandler(withAncestors({ href: '/delete-account' }, [{ onClick: () => undefined }])),
+    ).toBe(true);
+  });
+
+  it('returns true for a click handler on an ancestor further up than the first', () => {
+    expect(hasClickHandler(withAncestors({}, [{}, { onClick: () => undefined }]))).toBe(true);
+  });
+
+  for (const key of ['onMouseDown', 'onMouseUp', 'onPointerDown', 'onPointerUp'] as const) {
+    it(`returns true when the element declares ${key}`, () => {
+      expect(hasClickHandler(withAncestors({ [key]: () => undefined }))).toBe(true);
+    });
+
+    it(`returns true when a parent declares ${key}`, () => {
+      expect(hasClickHandler(withAncestors({}, [{ [key]: () => undefined }]))).toBe(true);
+    });
+  }
+
+  it('ignores a non-function handler prop', () => {
+    expect(hasClickHandler(withAncestors({ onClick: 'nope' }))).toBe(false);
+  });
+
+  it('returns undefined rather than false when the walk hits its depth bound', () => {
+    const deep: Array<Record<string, unknown>> = Array.from({ length: 70 }, () => ({}));
+    expect(hasClickHandler(withAncestors({}, deep))).toBeUndefined();
   });
 });
 

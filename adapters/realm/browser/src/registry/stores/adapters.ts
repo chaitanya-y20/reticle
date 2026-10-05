@@ -110,9 +110,11 @@ const INLINE_HANDLER_ATTR = 'onclick';
  *
  * An `onclick` written into the markup is visible on the element. A handler a FRAMEWORK attached is
  * not — nothing in the DOM records it — so the adapters are asked, which is the only place that
- * knows. `undefined` is "no adapter could read this element", and only a positive reading refuses
- * the exemption: a handler bound with plain `addEventListener` on a page with no adapter leaves no
- * trace at all, which is a named gap rather than a proof. See `isPlainNavigationLink` in core.
+ * knows. The reading is three-valued: `true` a handler is visible, `false` a probe actually looked
+ * and found none, `undefined` nothing could read the element. Only a definite `false` buys the
+ * exemption in `isPlainNavigationLink`; unknown refuses, because a handler bound with plain
+ * `addEventListener` on a page with no adapter leaves no DOM trace and is indistinguishable from a
+ * handlerless element.
  */
 export function elementHandlesClick(el: Element): boolean | undefined {
   if (el.hasAttribute(INLINE_HANDLER_ATTR)) return true;
