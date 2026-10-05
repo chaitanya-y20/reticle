@@ -38,13 +38,10 @@ function descriptorRole(value: unknown): string | undefined {
 /**
  * The anchor facts the inspector reports, for the plain-navigation exemption.
  *
- * This path has no element to read, so the descriptor carries what the browser already computed
- * (`isAnchor`, `hasClickHandler`, `insideForm`) and the href it already exposes.
- *
- * Handed over only when the descriptor declares ALL THREE facts. A descriptor from a version that
- * predates them describes a link whose anchor-ness and handler nobody checked, and treating that
- * silence as "plain" would exempt a wired-up link on the strength of what nobody asked. Unknown
- * refuses; proven narrows.
+ * This path has no element to read, so the descriptor carries what the browser already computed and
+ * the href it exposes. Handed over only when it declares ALL THREE facts: a descriptor predating
+ * them describes a link nobody checked, and treating that silence as "plain" would exempt a
+ * wired-up link. Unknown refuses; proven narrows.
  */
 function descriptorLinkAttributes(value: unknown): LinkAttributes {
   const descriptor = asRecord(value);
@@ -57,18 +54,12 @@ function descriptorLinkAttributes(value: unknown): LinkAttributes {
   return {
     ...(href !== undefined ? { href } : {}),
     isAnchor: true === descriptor['isAnchor'],
-    // A descriptor that predates the three-state reading declared a boolean, so `false` here is a
-    // real "no handler" only if the producer could actually look. Anything that is not a definite
-    // boolean is dropped, and the predicate refuses an absent `hasClickHandler`, so an
-    // under-specified descriptor keeps the block instead of buying an exemption with silence.
+    // Non-boolean dropped, so an under-specified descriptor keeps the block.
     ...('boolean' === typeof descriptor['hasClickHandler']
       ? { hasClickHandler: true === descriptor['hasClickHandler'] }
       : {}),
     insideForm: true === descriptor['insideForm'],
-    // Absent is the safe default here: a producer that does not read the markers never declares
-    // this, and an unread marker must not be read as "no marker" any more than an unread handler
-    // may be read as "no handler". The browser caller only sets it when it saw one, so `true` is
-    // always a positive reading.
+    // Only a positive reading refuses, so a descriptor without the marker is unaffected.
     ...(true === descriptor['nonGetMarker'] ? { nonGetMarker: true } : {}),
   };
 }
