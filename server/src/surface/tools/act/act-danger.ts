@@ -2,7 +2,8 @@ import {
   ActionType,
   DANGEROUS_ACTION_CONFIRM_ARG,
   NATIVE_INPUT_ARG,
-  isDangerousActionText,
+  classifyActionText,
+  type LinkAttributes,
 } from '@reticlehq/core';
 import { asRecord, asString } from '@reticlehq/core';
 
@@ -34,8 +35,49 @@ function descriptorRole(value: unknown): string | undefined {
   return role !== undefined && role.length > 0 ? role : undefined;
 }
 
-function isDestructiveDescriptor(value: unknown): boolean {
-  return isDangerousActionText(descriptorText(value), descriptorRole(value));
+/**
+ * The anchor facts the inspector reports, for the plain-navigation exemption.
+ *
+ * This path has no element to read, so the descriptor carries what the browser already computed
+ * (`isAnchor`, `hasClickHandler`, `insideForm`) and the href it already exposes.
+ *
+ * Handed over only when the descriptor declares ALL THREE facts. A descriptor from a version that
+ * predates them describes a link whose anchor-ness and handler nobody checked, and treating that
+ * silence as "plain" would exempt a wired-up link on the strength of what nobody asked. Unknown
+ * refuses; proven narrows.
+ */
+function descriptorLinkAttributes(value: unknown): LinkAttributes {
+  const descriptor = asRecord(value);
+  const declared =
+    'boolean' === typeof descriptor['isAnchor'] &&
+    'boolean' === typeof descriptor['hasClickHandler'] &&
+    'boolean' === typeof descriptor['insideForm'];
+  if (!declared) return {};
+  const href = asString(descriptor['href']);
+  return {
+    ...(href !== undefined ? { href } : {}),
+    isAnchor: true === descriptor['isAnchor'],
+    // A descriptor that predates the three-state reading declared a boolean, so `false` here is a
+    // real "no handler" only if the producer could actually look. Anything that is not a definite
+    // boolean is dropped, and the predicate refuses an absent `hasClickHandler`, so an
+    // under-specified descriptor keeps the block instead of buying an exemption with silence.
+    ...('boolean' === typeof descriptor['hasClickHandler']
+      ? { hasClickHandler: true === descriptor['hasClickHandler'] }
+      : {}),
+    insideForm: true === descriptor['insideForm'],
+  };
+}
+
+/**
+ * `navigation` is false at a DRAG END. Dropping a row onto a link is not navigation, and a drop
+ * target is exactly what a link looks like, so that end is classified on its text alone.
+ */
+function isDestructiveDescriptor(value: unknown, navigation = true): boolean {
+  return classifyActionText(
+    descriptorText(value),
+    descriptorRole(value),
+    navigation ? descriptorLinkAttributes(value) : {},
+  );
 }
 
 export function assertNotDestructive(
@@ -62,7 +104,7 @@ export function assertDragNotDestructive(
   to: unknown,
 ): void {
   if (true === innerArgs[DANGEROUS_ACTION_CONFIRM_ARG]) return;
-  if (!isDestructiveDescriptor(from) && !isDestructiveDescriptor(to)) return;
+  if (!isDestructiveDescriptor(from, false) && !isDestructiveDescriptor(to, false)) return;
   throw new Error(
     `potentially destructive native action blocked; retry with args.${DANGEROUS_ACTION_CONFIRM_ARG}=true`,
   );
