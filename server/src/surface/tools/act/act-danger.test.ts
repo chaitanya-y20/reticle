@@ -73,15 +73,20 @@ describe('assertNotDestructive', () => {
   });
 
   /**
-   * The end-to-end half of the INSPECT marker, on the descriptor the client actually produces.
+   * The end-to-end half of the INSPECT marker, on the descriptor shape INSPECT builds.
    *
    * This path has no element to read, so the descriptor is the only thing carrying the marker, and
    * the fixture has to be the shape in which the marker is load-bearing. That shape needs a DEFINITE
    * `hasClickHandler: false`: `descriptorLinkAttributes` requires `isAnchor`, `hasClickHandler` and
    * `insideForm` to all be booleans and returns `{}` otherwise, so a descriptor that omits the
    * handler fact is refused by the absence alone and the marker is never read. Only with the three
-   * facts declared does the marker become the one thing that refuses this link — the href reads as a
-   * GET and the handler reading is a clean `false`, so without the marker it would be exempted.
+   * facts declared does the marker become the one thing that refuses this link, since the href reads
+   * as a GET and the handler reading is a clean `false`, so without the marker it would be exempted.
+   *
+   * The `false` here is deliberate and no client produces it today: every shipped producer answers
+   * `true` or `undefined`, so a marker on a real descriptor is refused by the absent handler reading
+   * before it is consulted. This test is about the marker's own wiring, which has to be right for the
+   * day a producer can supply the reading, so it hand-writes the one shape that isolates it.
    *
    * The browser-side test that INSPECT puts the field on the descriptor is in
    * `adapters/realm/browser/src/commands/commands.test.ts`.

@@ -305,16 +305,25 @@ const DIST_ENTRY = join(PACKAGE_ROOT, 'dist', 'index.js');
  * Raised by 1,000 over the measurement (247,238), rounded down to the hundred, per the note above.
  */
 /*
- * 246_700 -> 248_200, for the plain-navigation exemption's element facts. 493 B measured on the
- * branch's own base (246,685 -> 247,178): `isAnchor`/`hasClickHandler`/`insideForm` are read where
- * the element is and travel on the inspect descriptor so the native path can classify without one,
- * plus the framework adapter's `onClick` probe. All of it runs where the page is.
+ * 246_700 -> 248_200, for the plain-navigation exemption's element facts, then -> 249_200 when this
+ * branch was rebased and re-measured.
  *
- * Re-measured on the rebased tree, above the `press` change: 248,247 B. That number is measured,
- * not carried: rebasing the branch onto main changed the byte count (the two changes overlap in
- * `actions.ts` and share the ceiling the press change already raised), so the merged tree was
- * bundled with this same check and read again rather than reusing either branch's figure.
- * Raised by 1,000 over the measurement, rounded down to the hundred, per the note above.
+ * The facts cost 493 B on the branch's own base (246,685 -> 247,178): `isAnchor`/`hasClickHandler`/
+ * `insideForm` are read where the element is and travel on the inspect descriptor so the native path
+ * can classify without one, plus the framework adapter's `onClick` probe. All of it runs where the
+ * page is.
+ *
+ * The second raise is honest about what it buys, because the exemption those facts feed is not yet
+ * reachable: `isPlainNavigationLink` needs `hasClickHandler: false` and no shipped producer answers
+ * one, so every page still takes the block and this bundle grew for plumbing that does nothing yet.
+ * Weighed against that, the alternative was dropping the probe and shipping nothing for #1275 at all,
+ * and the facts are what a producer would need on the day one can answer `false`.
+ *
+ * Measured on the rebased tree: main 247,612 B, this branch 248,853 B, so 1,241 B on top of main.
+ * The ceiling is 249,200, which is 347 B over that measurement, tighter than the 1,000 B these notes
+ * usually leave and deliberately so: this raise pays for plumbing rather than a working exemption, so
+ * it takes only what the measurement needs. The 249,200 figure was carried from a 248,247 B read
+ * taken before this rebase, and the measurement above is the one to trust.
  */
 const MAX_FIRST_LOAD_BYTES = 249_200;
 /*
