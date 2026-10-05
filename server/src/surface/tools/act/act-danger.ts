@@ -39,25 +39,25 @@ function descriptorRole(value: unknown): string | undefined {
  * The anchor facts the inspector reports, for the plain-navigation exemption.
  *
  * This path has no element to read, so the descriptor carries what the browser already computed and
- * the href it exposes. Handed over only when it declares ALL THREE facts: a descriptor predating
- * them describes a link nobody checked, and treating that silence as "plain" would exempt a
- * wired-up link. Unknown refuses; proven narrows.
+ * the href it exposes. Only a POSITIVE handler reading travels: the browser can prove a handler
+ * exists, never that one is absent, so a `false` here would be an absence nobody observed. The
+ * absence the exemption needs comes from the CDP session instead, as the guard's own argument.
+ *
+ * `isAnchor` and `insideForm` are required because the browser always computes them; without them the
+ * descriptor is from a version that did not, and its silence must not be read as "plain".
  */
 function descriptorLinkAttributes(value: unknown): LinkAttributes {
   const descriptor = asRecord(value);
   const declared =
-    'boolean' === typeof descriptor['isAnchor'] &&
-    'boolean' === typeof descriptor['hasClickHandler'] &&
-    'boolean' === typeof descriptor['insideForm'];
+    'boolean' === typeof descriptor['isAnchor'] && 'boolean' === typeof descriptor['insideForm'];
   if (!declared) return {};
   const href = asString(descriptor['href']);
   return {
     ...(href !== undefined ? { href } : {}),
     isAnchor: true === descriptor['isAnchor'],
-    // Non-boolean dropped, so an under-specified descriptor keeps the block.
-    ...('boolean' === typeof descriptor['hasClickHandler']
-      ? { hasClickHandler: true === descriptor['hasClickHandler'] }
-      : {}),
+    // Carried only when true. A `false` is dropped, so the predicate refuses rather than exempting
+    // on a reading the page was never able to take.
+    ...(true === descriptor['hasClickHandler'] ? { hasClickHandler: true } : {}),
     insideForm: true === descriptor['insideForm'],
     // Only a positive reading refuses, so a descriptor without the marker is unaffected.
     ...(true === descriptor['nonGetMarker'] ? { nonGetMarker: true } : {}),
@@ -67,23 +67,56 @@ function descriptorLinkAttributes(value: unknown): LinkAttributes {
 /**
  * `navigation` is false at a DRAG END. Dropping a row onto a link is not navigation, and a drop
  * target is exactly what a link looks like, so that end is classified on its text alone.
+ *
+ * `clickListeners` is the CDP reading for this element when a driver could take one: `true` a real
+ * listener was found, `false` a proven handlerless element, `undefined` nothing could answer. Only
+ * the definite `false` narrows. It overwrites the page's own reading because the page can prove a
+ * handler PRESENT and never absent, and this is the one source that can prove absence.
  */
-function isDestructiveDescriptor(value: unknown, navigation = true): boolean {
+function isDestructiveDescriptor(
+  value: unknown,
+  navigation = true,
+  clickListeners?: boolean,
+): boolean {
+  if (!navigation) return classifyActionText(descriptorText(value), descriptorRole(value), {});
+  const attrs = descriptorLinkAttributes(value);
+  // A handler the PAGE proved always blocks, and the CDP reading can never undo that. Otherwise the
+  // CDP reading decides, and only its definite `false` narrows.
+  const effective = true === attrs.hasClickHandler ? true : clickListeners;
   return classifyActionText(
     descriptorText(value),
     descriptorRole(value),
-    navigation ? descriptorLinkAttributes(value) : {},
+    effective === undefined ? attrs : { ...attrs, hasClickHandler: effective },
   );
+}
+
+/**
+ * Whether a handlerless reading could EXEMPT this descriptor, which is the only reason to spend a CDP
+ * round-trip on it.
+ *
+ * True when the descriptor describes a plain-navigation candidate that is currently blocked only for
+ * lack of a proven-handlerless reading: a real anchor, no page-proved handler, not inside a form, and
+ * a text/address that the destructive pattern flags. A button, a form control, or a link the page
+ * wired up is refused for reasons a handler reading cannot touch, so a caller skips the round-trips.
+ */
+export function couldListenerReadingExempt(value: unknown): boolean {
+  const attrs = descriptorLinkAttributes(value);
+  if (true === attrs.hasClickHandler) return false;
+  return !classifyActionText(descriptorText(value), descriptorRole(value), {
+    ...attrs,
+    hasClickHandler: false,
+  });
 }
 
 export function assertNotDestructive(
   action: ActionType,
   innerArgs: Record<string, unknown>,
   inspected: unknown,
+  clickListeners?: boolean,
 ): void {
   if (action !== ActionType.CLICK && action !== ActionType.DBLCLICK) return;
   if (true === innerArgs[DANGEROUS_ACTION_CONFIRM_ARG]) return;
-  if (!isDestructiveDescriptor(inspected)) return;
+  if (!isDestructiveDescriptor(inspected, true, clickListeners)) return;
   throw new Error(
     `potentially destructive native action blocked; retry with args.${DANGEROUS_ACTION_CONFIRM_ARG}=true`,
   );

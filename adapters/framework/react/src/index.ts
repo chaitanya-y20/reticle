@@ -336,32 +336,25 @@ export function hasHoverHandlers(el: Element): boolean {
 }
 
 /**
- * Whether a click on this element (or one wrapping it) runs React code.
+ * Whether a click on this element (or one wrapping it) is declared by React props.
  *
  * Walks the element's own host fibre and then its ancestors', because a handler attached to a parent
  * element runs on a bubbling click just the same as one on the anchor itself. Answering only for the
- * element's own `onClick` reads a delegated handler as absent, and "absent" is the answer that hands
- * the link the exemption.
+ * element's own `onClick` reads a delegated handler as absent.
  *
- * Three-valued on purpose:
- * - `true`  a click-ish handler was found on the element or an ancestor within `MAX_HANDLER_WALK`.
- * - `undefined` the walk finished (or hit its bound) with no handler in any fibre's props. This is
- *           NOT `false`: props are the only thing a fibre exposes, and a listener bound outside them
- *           — `ref.addEventListener('click', …)`, or one on `document` that event delegation
- *           carries — is invisible here and runs on the click all the same. Reaching the top of the
- *           tree proves nothing about listeners that were never props, so the honest answer is "a
- *           reading was taken and it cannot rule a handler out", which keeps the block.
- *
- * There is deliberately no `false`. `hasClickHandler` can prove a handler EXISTS, never that one is
- * ABSENT, and the guard must not be handed an absence this function did not observe.
+ * `true` is a positive reading and the only one the guard acts on. `false` says only that no React
+ * PROP declared a handler, which is not the same as "nothing handles this click": a listener bound
+ * outside props (`ref.addEventListener('click', …)`, or one on `document` that delegation carries)
+ * leaves no trace here and runs all the same. The guard never reads this `false` as a handlerless
+ * link; a handlerless reading comes from a driver holding a CDP session, not from here.
  */
-export function hasClickHandler(el: Element): boolean | undefined {
+export function hasClickHandler(el: Element): boolean {
   let fiber = getFiber(el);
-  if (null === fiber) return undefined;
+  if (null === fiber) return false;
 
   let depth = 0;
   while (null !== fiber) {
-    if (depth >= MAX_HANDLER_WALK) return undefined;
+    if (depth >= MAX_HANDLER_WALK) return false;
     depth += 1;
 
     const props = fiber.memoizedProps;
@@ -373,7 +366,7 @@ export function hasClickHandler(el: Element): boolean | undefined {
     fiber = fiber.return;
   }
 
-  return undefined;
+  return false;
 }
 
 import { installRenderMeter } from './render-meter.js';

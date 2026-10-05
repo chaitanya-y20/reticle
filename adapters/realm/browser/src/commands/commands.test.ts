@@ -91,8 +91,9 @@ describe('command registry (driven by the bridge)', () => {
    *
    * So the facts that make an anchor not a plain navigation have to travel on the descriptor, or
    * the native path exempts a link the page wired up in the markup. `hasClickHandler` is present
-   * only when a reading was actually taken: with no adapter installed every element is unreadable,
-   * and the guard refuses an unread descriptor rather than reading silence as "no handler".
+   * only when a reading was actually taken, and a reading here can only ever be `true`: a page can
+   * prove a handler PRESENT, never that one is ABSENT, so a handlerless fact is never on the
+   * descriptor. That reading comes from CDP.
    */
   it('INSPECT reports the plain-navigation facts it could read', () => {
     registerAdapter({
@@ -110,11 +111,11 @@ describe('command registry (driven by the bridge)', () => {
       if (!(el instanceof HTMLElement)) throw new Error(`no element for ${selector}`);
       return run(ReticleCommand.INSPECT, { ref: refs.refFor(el) }) as Record<string, unknown>;
     };
-    expect(read('#plain')).toMatchObject({
-      isAnchor: true,
-      hasClickHandler: false,
-      insideForm: false,
-    });
+    // The probe answered `false` for `#plain`, and the descriptor still carries no handler fact:
+    // a framework's props are not where every listener lives, so this reading cannot be trusted as
+    // an absence.
+    expect(read('#plain')).toMatchObject({ isAnchor: true, insideForm: false });
+    expect('hasClickHandler' in read('#plain')).toBe(false);
     expect(read('#wired')).toMatchObject({ isAnchor: true, hasClickHandler: true });
     expect(read('#fake')).toMatchObject({ isAnchor: false });
     expect(read('#inform')).toMatchObject({ isAnchor: true, insideForm: true });

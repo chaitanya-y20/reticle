@@ -1,14 +1,21 @@
-/**
- * Native-click destructive guard. The SDK path is tested in the browser package; this is the
- * same list, on the descriptor the native inspector returns, because a role that never reaches
- * here is a Payment option that is still refused.
- */
 import { describe, expect, it } from 'vitest';
 import { ActionType } from '@reticlehq/core';
-import { assertDragNotDestructive, assertNotDestructive } from './act-danger.js';
+import {
+  assertDragNotDestructive,
+  assertNotDestructive,
+  couldListenerReadingExempt,
+} from './act-danger.js';
 
+/**
+ * The destructive-action guard on the descriptor path.
+ *
+ * The inspector reports the anchor's own facts, because this path has no element to read. The plain
+ * navigation exemption then needs a reading that the link has NO handler, and that reading comes from
+ * the CDP session (the fourth argument), never from the page: a page can prove a handler PRESENT and
+ * never that one is absent, so the descriptor's own `hasClickHandler` can only ever keep the block.
+ */
 describe('assertNotDestructive', () => {
-  it('does not block a Payment option — selecting a document type is not a payment', () => {
+  it('does not block a Payment option: selecting a document type is not a payment', () => {
     expect(() =>
       assertNotDestructive(ActionType.CLICK, {}, { text: 'Payment', role: 'option' }),
     ).not.toThrow();
@@ -26,14 +33,8 @@ describe('assertNotDestructive', () => {
     ).toThrow(/confirmDangerous/);
   });
 
-  /**
-   * The inspector reports the anchor's own facts, because this path has no element to read.
-   *
-   * Without them a plain navigation link is classified on its href, and `/billing/payments` reads
-   * as money-moving. A link with an inline handler keeps its block, which is the whole reason those
-   * two fields travel.
-   */
-  it('does not block a plain navigation link whose href carries a money word', () => {
+  /** The descriptor alone, with no CDP reading, keeps the block even for a handlerless anchor. */
+  it('blocks a plain navigation link when no CDP reading was taken', () => {
     expect(() =>
       assertNotDestructive(
         ActionType.CLICK,
@@ -47,10 +48,76 @@ describe('assertNotDestructive', () => {
           insideForm: false,
         },
       ),
+    ).toThrow(/confirmDangerous/);
+  });
+
+  /**
+   * The exemption, on a descriptor the CDP session proved handlerless.
+   *
+   * `false` is the one reading a page cannot supply and a CDP session can: `DOMDebugger` lists real
+   * listeners, so a `false` here means every node in the chain was read and none had one.
+   */
+  it('exempts a plain navigation link the CDP reading proved handlerless', () => {
+    expect(() =>
+      assertNotDestructive(
+        ActionType.CLICK,
+        {},
+        {
+          text: 'Orders & invoices',
+          role: 'link',
+          href: '/billing/payment',
+          isAnchor: true,
+          hasClickHandler: false,
+          insideForm: false,
+        },
+        false,
+      ),
     ).not.toThrow();
   });
 
-  it('still blocks a link with a handler, an executable href, or a non-anchor claiming the role', () => {
+  it('blocks a link the CDP reading found a listener on', () => {
+    expect(() =>
+      assertNotDestructive(
+        ActionType.CLICK,
+        {},
+        {
+          text: 'Orders & invoices',
+          role: 'link',
+          href: '/billing/payment',
+          isAnchor: true,
+          hasClickHandler: false,
+          insideForm: false,
+        },
+        true,
+      ),
+    ).toThrow(/confirmDangerous/);
+  });
+
+  /**
+   * A page-proved handler always blocks, and no CDP reading can undo it. This is the direction that
+   * must not be reversible: the reading narrows, it never widens.
+   */
+  it('blocks when the page itself proved a handler, whatever the CDP reading says', () => {
+    for (const reading of [undefined, false, true]) {
+      expect(() =>
+        assertNotDestructive(
+          ActionType.CLICK,
+          {},
+          {
+            text: 'Orders & invoices',
+            role: 'link',
+            href: '/billing/payment',
+            isAnchor: true,
+            hasClickHandler: true,
+            insideForm: false,
+          },
+          reading,
+        ),
+      ).toThrow(/confirmDangerous/);
+    }
+  });
+
+  it('still blocks a link with an executable href, a non-anchor, a form, the marker, or `#`', () => {
     const plain = {
       text: 'Orders & invoices /billing/payment',
       role: 'link',
@@ -59,38 +126,44 @@ describe('assertNotDestructive', () => {
       hasClickHandler: false,
       insideForm: false,
     };
-    // Every one of these is refused the exemption, so the money word in the text still blocks.
+    // Every one of these is refused the exemption even with a proven handlerless reading, so the
+    // money word in the text still blocks.
     for (const bad of [
-      { ...plain, hasClickHandler: true },
       { ...plain, href: 'javascript:void 0' },
       { ...plain, isAnchor: false, role: 'button' },
       { ...plain, insideForm: true },
       { ...plain, href: '#' },
       { ...plain, nonGetMarker: true },
     ]) {
-      expect(() => assertNotDestructive(ActionType.CLICK, {}, bad)).toThrow(/confirmDangerous/);
+      expect(() => assertNotDestructive(ActionType.CLICK, {}, bad, false)).toThrow(
+        /confirmDangerous/,
+      );
     }
   });
 
   /**
-   * The end-to-end half of the INSPECT marker, on the descriptor shape INSPECT builds.
-   *
-   * This path has no element to read, so the descriptor is the only thing carrying the marker, and
-   * the fixture has to be the shape in which the marker is load-bearing. That shape needs a DEFINITE
-   * `hasClickHandler: false`: `descriptorLinkAttributes` requires `isAnchor`, `hasClickHandler` and
-   * `insideForm` to all be booleans and returns `{}` otherwise, so a descriptor that omits the
-   * handler fact is refused by the absence alone and the marker is never read. Only with the three
-   * facts declared does the marker become the one thing that refuses this link, since the href reads
-   * as a GET and the handler reading is a clean `false`, so without the marker it would be exempted.
-   *
-   * The `false` here is deliberate and no client produces it today: every shipped producer answers
-   * `true` or `undefined`, so a marker on a real descriptor is refused by the absent handler reading
-   * before it is consulted. This test is about the marker's own wiring, which has to be right for the
-   * day a producer can supply the reading, so it hand-writes the one shape that isolates it.
-   *
-   * The browser-side test that INSPECT puts the field on the descriptor is in
-   * `adapters/realm/browser/src/commands/commands.test.ts`.
+   * A caller spends a CDP round-trip only when a handlerless reading could actually exempt, so this
+   * predicate must be false for everything refused for reasons a reading cannot touch.
    */
+  it('knows when a handlerless reading could exempt, and when it could not', () => {
+    const blockedAnchor = {
+      text: 'Orders & invoices /billing/payment',
+      role: 'link',
+      href: '/billing/payment',
+      isAnchor: true,
+      insideForm: false,
+    };
+    // Blocked on the money word, and a handlerless reading would clear it.
+    expect(couldListenerReadingExempt(blockedAnchor)).toBe(true);
+    // Refused for reasons the reading cannot reach.
+    expect(couldListenerReadingExempt({ text: 'Delete', role: 'button' })).toBe(false);
+    expect(couldListenerReadingExempt({ ...blockedAnchor, hasClickHandler: true })).toBe(false);
+    expect(couldListenerReadingExempt({ ...blockedAnchor, isAnchor: false })).toBe(false);
+    expect(couldListenerReadingExempt({ ...blockedAnchor, insideForm: true })).toBe(false);
+    expect(couldListenerReadingExempt({ ...blockedAnchor, nonGetMarker: true })).toBe(false);
+    expect(couldListenerReadingExempt({ ...blockedAnchor, href: 'javascript:void 0' })).toBe(false);
+  });
+
   it('blocks the descriptor INSPECT produces for a data-turbo-method link', () => {
     expect(() =>
       assertNotDestructive(
@@ -105,60 +178,39 @@ describe('assertNotDestructive', () => {
           insideForm: false,
           nonGetMarker: true,
         },
+        false,
       ),
     ).toThrow(/confirmDangerous/);
-  });
-
-  /**
-   * The control for the test above: the SAME descriptor with the marker absent is exempted.
-   *
-   * Without this the pair proves nothing — it is what shows the marker, and not the text or the
-   * other three facts, is what refuses the link.
-   */
-  it('exempts that same descriptor when the non-GET marker is absent', () => {
-    expect(() =>
-      assertNotDestructive(
-        ActionType.CLICK,
-        {},
-        {
-          text: 'Orders & invoices',
-          role: 'link',
-          href: '/billing/payment',
-          isAnchor: true,
-          hasClickHandler: false,
-          insideForm: false,
-        },
-      ),
-    ).not.toThrow();
   });
 
   it('keeps the old answer for a descriptor that carries no anchor facts', () => {
+    // No `isAnchor`/`hasClickHandler`/`insideForm`, so the descriptor cannot describe a plain link
+    // and the CDP reading has nothing to narrow.
     expect(() =>
       assertNotDestructive(
         ActionType.CLICK,
         {},
-        { text: 'Orders & invoices', role: 'link', href: '/billing/payment' },
+        { text: 'Orders & invoices /billing/payment', role: 'link', href: '/billing/payment' },
+        false,
       ),
     ).toThrow(/confirmDangerous/);
   });
 
   /**
-   * A drag END is never navigation, so a plain-looking link as the drop target keeps its block.
+   * A drag end is not navigation, so a plain-looking drop target keeps its block however clean its
+   * handler reading is. This pins the `navigation` branch that would otherwise be unreachable from
+   * the tests.
    */
   it('still blocks a drag whose target is a plain navigation link', () => {
-    expect(() =>
-      assertDragNotDestructive(
-        {},
-        { text: 'Row', role: 'row' },
-        {
-          text: 'Pay now',
-          role: 'link',
-          href: '/billing/payment',
-          isAnchor: true,
-          hasClickHandler: false,
-          insideForm: false,
-        },
-      ),
-    ).toThrow(/confirmDangerous/);
+    const plainDropTarget = {
+      text: 'Pay now /billing/payment',
+      role: 'link',
+      href: '/billing/payment',
+      isAnchor: true,
+      insideForm: false,
+    };
+    expect(() => assertDragNotDestructive({}, { text: 'Row' }, plainDropTarget)).toThrow(
+      /confirmDangerous/,
+    );
   });
 });

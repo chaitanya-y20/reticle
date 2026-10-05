@@ -250,17 +250,19 @@ describe('react adapter hasClickHandler', () => {
     return container;
   };
 
-  it('returns undefined when no fiber can be read at all', () => {
-    expect(hasClickHandler(document.createElement('a'))).toBeUndefined();
+  it('returns false when no fiber can be read at all', () => {
+    expect(hasClickHandler(document.createElement('a'))).toBe(false);
   });
 
-  it('returns undefined for a rendered link with no handler anywhere, because a listener bound outside props is invisible', () => {
+  it('returns false for a rendered link with no React onClick anywhere', () => {
     root(createElement('a', { href: '/billing', id: 'plain' }, 'Orders'));
     const el = container.querySelector('#plain');
     expect(el).not.toBeNull();
     if (null === el) return;
-    // NOT `false`: the walk can prove a handler exists, never that one is absent.
-    expect(hasClickHandler(el)).toBeUndefined();
+    // This says only that no React PROP declared a handler. It is NOT a claim that nothing handles
+    // the click: a listener bound outside props leaves no trace here, and the guard never reads this
+    // `false` as a handlerless link. That reading comes from CDP.
+    expect(hasClickHandler(el)).toBe(false);
   });
 
   it('returns true for the element own onClick', () => {
@@ -322,7 +324,7 @@ describe('react adapter hasClickHandler', () => {
     });
   }
 
-  it('returns undefined for a listener bound with ref.addEventListener, which lives outside props', () => {
+  it('returns false for a listener bound with ref.addEventListener, which lives outside props', () => {
     function Wired(): ReturnType<typeof createElement> {
       const ref = useRef<HTMLAnchorElement>(null);
       useEffect(() => {
@@ -333,12 +335,13 @@ describe('react adapter hasClickHandler', () => {
     root(createElement(Wired));
     const el = container.querySelector('#wired');
     if (null === el) throw new Error('fixture missing');
-    // The listener exists and runs on a click, but React's props do not carry it. Answering `false`
-    // here is what let this link take the exemption.
-    expect(hasClickHandler(el)).toBeUndefined();
+    // The listener exists and runs on a click, but props do not carry it, so this says only "no React
+    // onClick". The guard does not read it as handlerless: the CDP reading sees the real listener and
+    // keeps the block. This test is here to pin that props alone would have said `false`.
+    expect(hasClickHandler(el)).toBe(false);
   });
 
-  it('returns undefined for a document-level delegated listener', () => {
+  it('returns false for a document-level delegated listener', () => {
     function DocumentWired(): ReturnType<typeof createElement> {
       useEffect(() => {
         const onDoc = (e: Event): void => e.preventDefault();
@@ -350,10 +353,10 @@ describe('react adapter hasClickHandler', () => {
     root(createElement(DocumentWired));
     const el = container.querySelector('#doc');
     if (null === el) throw new Error('fixture missing');
-    expect(hasClickHandler(el)).toBeUndefined();
+    expect(hasClickHandler(el)).toBe(false);
   });
 
-  it('ignores a non-function handler prop', () => {
+  it('returns false for a non-function handler prop', () => {
     root(
       createElement(
         'a',
@@ -363,7 +366,7 @@ describe('react adapter hasClickHandler', () => {
     );
     const el = container.querySelector('#nonfn');
     if (null === el) throw new Error('fixture missing');
-    expect(hasClickHandler(el)).toBeUndefined();
+    expect(hasClickHandler(el)).toBe(false);
   });
 });
 
