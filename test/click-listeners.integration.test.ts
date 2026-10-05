@@ -126,6 +126,20 @@ const CASES = [
     why: 'the composed walk has to climb out of the shadow tree and keep going',
   },
   {
+    name: 'a link inside a SHADOW ROOT with the listener on the ROOT itself',
+    body: SHADOW_BODY,
+    script: shadowScript("sr.addEventListener('click', function (e) { e.preventDefault(); });"),
+    expected: true,
+    why: 'a click from a descendant propagates through the shadow root; jumping to the host misses it',
+  },
+  {
+    name: 'a link under a root container with a delegated click listener (React 17+ shape)',
+    body: '<div id="root" style="padding:24px"><a id="target" href="/billing/payment" style="display:block;padding:16px">Orders</a></div>',
+    script: "document.getElementById('root').addEventListener('click', function () {});",
+    expected: true,
+    why: 'React delegates click to the root container, which is an ancestor on the click path',
+  },
+  {
     name: 'a link whose centre is covered by an overlay',
     body: `${PLAIN_LINK}<div id="overlay" style="position:absolute;inset:0"></div>`,
     script:
@@ -136,11 +150,12 @@ const CASES = [
 ];
 
 let browser;
+let server;
 let origin;
 
 beforeAll(async () => {
   // One server whose path selects the case, so each test navigates to its own page.
-  const server = http.createServer((req, res) => {
+  server = http.createServer((req, res) => {
     const key = (req.url ?? '/').split('/')[1] ?? '';
     const found = CASES[Number(key)] ?? CASES[0];
     res.writeHead(200, { 'content-type': 'text/html' });
@@ -153,6 +168,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
+  // Retain and close the server too: an open listening socket keeps the test process alive and makes
+  // shutdown depend on runner teardown.
+  await new Promise((resolve) => (server ? server.close(resolve) : resolve(undefined)));
 });
 
 /** The reading for the target link on a freshly loaded page for `index`. */

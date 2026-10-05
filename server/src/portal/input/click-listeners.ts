@@ -72,6 +72,14 @@ const CLICKISH_EVENTS: ReadonlySet<string> = new Set([
  * click is composed and crosses the shadow boundary, so this steps to `host` at a shadow root and
  * keeps going, then to `document` and `window`.
  *
+ * The SHADOW ROOT ITSELF is pushed before its host: a listener on the root is on the propagation path
+ * of a click from any of its descendants, and a delegated handler is commonly attached there rather
+ * than to the host.
+ *
+ * A shadow root is detected by `nodeType === 11`, NOT by `node.host`. Every `<a href>` has a `host`
+ * property too (the URL's hostname), so a truthiness test for it walks an anchor's HREF into the
+ * chain and stops there, which is how a link wired with a real listener read as handlerless.
+ *
  * Built in-page because only the page knows its own ancestry, and it returns the NODES rather than a
  * boolean so the listener query happens over CDP, where real listeners are visible.
  */
@@ -80,8 +88,12 @@ const CHAIN_FN = `function () {
   let node = this;
   while (node) {
     chain.push(node);
+    if (11 === node.nodeType) {
+      // A ShadowRoot: it is on the click path of its descendants and can carry the handler itself.
+      node = node.host;
+      continue;
+    }
     node = node.parentElement || node.parentNode || null;
-    if (node && node.host) node = node.host;
   }
   chain.push(document, window);
   return chain;
@@ -160,23 +172,26 @@ export async function clickListenersForRef(
  * Read by ref, not by point, so a fact about the element is a fact about the control the guard will
  * act on. An unresolvable ref keeps the block.
  *
- * Bounded: a CDP call that never returns must not stall the gesture, so a slow read is abandoned and
- * answered `undefined`, which keeps the block.
+ * The deadline covers the WHOLE session lifecycle, opening and detaching included: a session that
+ * stalls while opening, or a `detach` that never resolves, would otherwise hold the gesture open past
+ * the bound. A read abandoned at the deadline answers `undefined`, which keeps the block.
  */
 export async function clickListenersOnRef(page: Page, ref: string): Promise<ClickListenerReading> {
-  let session: CdpSession;
   try {
-    session = await page.context().newCDPSession(page);
-  } catch {
-    return undefined;
-  }
-  try {
-    return await withDeadline(clickListenersForRef(session, ref), READ_DEADLINE_MS);
+    return await withDeadline(readWithSession(page, ref), READ_DEADLINE_MS);
   } catch {
     // A detached session, a node that went away mid-read, a browser that does not implement the
-    // domain, or a read that ran past its deadline. All of them mean "nothing could answer", which is
-    // `undefined`, never `false`.
+    // domain, or a lifecycle that ran past its deadline. All of them mean "nothing could answer",
+    // which is `undefined`, never `false`.
     return undefined;
+  }
+}
+
+/** Open a session, read, and detach. Detach is attempted even when the read throws. */
+async function readWithSession(page: Page, ref: string): Promise<ClickListenerReading> {
+  const session = (await page.context().newCDPSession(page)) as unknown as CdpSession;
+  try {
+    return await clickListenersForRef(session, ref);
   } finally {
     await session.detach().catch(() => undefined);
   }
