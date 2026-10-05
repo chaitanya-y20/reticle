@@ -150,6 +150,17 @@ export interface LinkAttributes {
   hasClickHandler?: boolean;
   /** True when the control submits a form, or sits inside one. */
   insideForm?: boolean;
+  /**
+   * True when the element carries a marker that says the app will turn the click into a non-GET
+   * request: `data-method`, `data-turbo-method`, `data-remote`, or an `hx-*` verb attribute.
+   *
+   * These are the Rails/Turbo/htmx/UJS idiom for "this anchor is a button in disguise" — the click
+   * still looks like a GET to an attribute check, but the framework intercepts it and issues a
+   * DELETE/POST. Absent means no such marker was seen, which is what `undefined` and `false` both
+   * look like; only `true` refuses, so a caller that does not read the attributes loses nothing it
+   * would otherwise have had.
+   */
+  nonGetMarker?: boolean;
 }
 
 /**
@@ -194,15 +205,20 @@ function isNavigationHref(href: string): boolean {
  * The destructive-label pattern reads a control's `href` along with its text, which is right for a
  * button whose label is an icon — its `formAction` is the only place it says what it does. On an
  * anchor the href is an ADDRESS, and addresses carry the pattern's words: `Orders & invoices`
- * pointing at `/billing/payment` is refused today for the `payment` in the URL, and a same-origin
- * GET to that URL changes nothing on its own.
+ * pointing at `/billing/payment` is refused today for the `payment` in the URL, and a GET to that URL
+ * changes nothing on its own.
  *
- * Honest about what it cannot see: a handler bound with `addEventListener` on a non-framework page
- * leaves no trace the DOM will answer, so such a link still takes the exemption. The two cases this
- * DOES catch are the two a page can state — an inline attribute, and a framework adapter's own
- * reading of the element's props. `href="#"` is refused as well, because an inert fragment href
- * plus a handler is the idiom for "the act lives elsewhere", which makes it the href that tells you
- * least.
+ * The scheme is checked, not the origin. `javascript:` and `data:` are refused by `isNavigationHref`,
+ * so an executable URL never takes the exemption, but a cross-origin `https:` href does — the guard
+ * does not compare the href's origin against the page's.
+ *
+ * Honest about what it cannot see: a handler bound with `addEventListener` and reachable only through
+ * a closure the DOM will not answer for leaves no trace, so such a link can still take the exemption.
+ * What this DOES catch is every case a page states — an inline attribute, a framework adapter's own
+ * reading of the element's props including the delegated handler on an ancestor, and the attributes
+ * that mark an anchor for a framework-rewritten non-GET request. `href="#"` is refused as well,
+ * because an inert fragment href plus a handler is the idiom for "the act lives elsewhere", which
+ * makes it the href that tells you least.
  */
 export function isPlainNavigationLink(role: string | undefined, attrs: LinkAttributes): boolean {
   if (role === undefined || !LINK_ROLES.has(role.trim().toLowerCase())) return false;
@@ -212,6 +228,10 @@ export function isPlainNavigationLink(role: string | undefined, attrs: LinkAttri
   // so unknown keeps the block rather than being optimistically read as "no handler".
   if (false !== attrs.hasClickHandler) return false;
   if (true === attrs.insideForm) return false;
+  // A marker that the framework rewrites the click into DELETE/POST. The href looks like a GET and
+  // there is no attribute-level handler, so without this the anchor reads as plain navigation while
+  // the click destroys something.
+  if (true === attrs.nonGetMarker) return false;
   const href = attrs.href?.trim();
   return href !== undefined && isNavigationHref(href);
 }

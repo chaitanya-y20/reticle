@@ -297,6 +297,32 @@ const HOVER_HANDLER_KEYS = [
 ] as const;
 
 /**
+ * Every React prop whose presence means "this element, or one wrapping it, runs code on a click".
+ *
+ * The set is deliberately wider than `onClick`. React apps attach destructive behaviour through
+ * `ref.addEventListener`, `onMouseDown`/`onPointerDown` (a mousedown opens a menu or fires an action
+ * before any click), and through the delegated parent `onClick` that event bubbling carries. Reading
+ * `onClick` alone answers `false` for a link the app does in fact wire up, and `false` is the value
+ * the guard treats as proven-handlerless.
+ */
+const CLICK_HANDLER_KEYS = [
+  'onClick',
+  'onMouseDown',
+  'onMouseUp',
+  'onPointerDown',
+  'onPointerUp',
+] as const;
+
+/**
+ * Depth the ancestor walk is allowed to reach before it stops claiming to know.
+ *
+ * A delegated handler is normally one or two hosts up. A page whose tree is deeper than this is one
+ * where a handler could sit above the reach of the walk, so the walk gives up and answers `undefined`
+ * rather than `false`.
+ */
+const MAX_HANDLER_WALK = 64;
+
+/**
  * True if the element's host fiber declares React enter/leave handlers. Synthetic dispatchEvent
  * does not reliably trigger React's native enter/leave synthesis (no hit-testing), so callers warn.
  * Fail soft: an unexpected fiber shape returns false.
@@ -310,16 +336,39 @@ export function hasHoverHandlers(el: Element): boolean {
 }
 
 /**
- * React's own click prop, the one the destructive-action guard needs to see.
+ * Whether a click on this element (or one wrapping it) runs React code.
  *
- * `onClick` is the prop name React documents and the one a JSX handler lands on. Read from the same
- * fibre `hasHoverHandlers` uses, and answered only when a fibre was found — a React page with no
- * fibre for this element is not evidence of a handlerless element, and the guard refuses on that.
+ * Walks the element's own host fibre and then its ancestors', because a handler attached to a parent
+ * element runs on a bubbling click just the same as one on the anchor itself. Answering only for the
+ * element's own `onClick` reads a delegated handler as absent, and "absent" is the answer that hands
+ * the link the exemption.
+ *
+ * Three-valued on purpose:
+ * - `true`  a click-ish handler was found on the element or an ancestor within `MAX_HANDLER_WALK`.
+ * - `false` the walk reached the top of the fibre tree and every host on the way was clean, which is
+ *           a definite handlerless reading.
+ * - `undefined` no fibre could be read at all, or the walk hit its depth bound without reaching the
+ *           top. Either way the absence of a handler is unproven, and the guard refuses on that.
  */
 export function hasClickHandler(el: Element): boolean | undefined {
-  const props = getFiber(el)?.memoizedProps;
-  if (typeof props !== 'object' || null === props) return undefined;
-  return 'function' === typeof (props as Record<string, unknown>)['onClick'];
+  let fiber = getFiber(el);
+  if (null === fiber) return undefined;
+
+  let depth = 0;
+  while (null !== fiber) {
+    if (depth >= MAX_HANDLER_WALK) return undefined;
+    depth += 1;
+
+    const props = fiber.memoizedProps;
+    if ('object' === typeof props && null !== props) {
+      const p = props as Record<string, unknown>;
+      if (CLICK_HANDLER_KEYS.some((k) => 'function' === typeof p[k])) return true;
+    }
+
+    fiber = fiber.return;
+  }
+
+  return false;
 }
 
 import { installRenderMeter } from './render-meter.js';

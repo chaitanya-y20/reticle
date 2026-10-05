@@ -44,6 +44,29 @@ function holdsUserText(el: ActionTarget): boolean {
 }
 
 /**
+ * True when the element is marked for a framework that turns the click into a non-GET request.
+ *
+ * Rails' `link_to method: :delete`, Turbo, and UJS all render the same shape: an `<a href>` that
+ * looks like a GET, carries no handler an attribute check can see, and is intercepted in script to
+ * issue a DELETE. htmx uses `hx-delete`/`hx-post`/`hx-put`/`hx-patch` the same way. The `href` and
+ * the absent handler both say "plain navigation", so without reading these the anchor is exempted
+ * and the click destroys something.
+ */
+const NON_GET_METHOD_ATTRS = [
+  'data-method',
+  'data-turbo-method',
+  'data-remote',
+  'hx-delete',
+  'hx-post',
+  'hx-put',
+  'hx-patch',
+] as const;
+
+function hasNonGetMethodMarker(el: ActionTarget): boolean {
+  return NON_GET_METHOD_ATTRS.some((name) => el.hasAttribute(name));
+}
+
+/**
  * The element facts the pattern cannot read for itself.
  *
  * A plain anchor is the one control whose label and address are not evidence of what it does: its
@@ -67,6 +90,7 @@ function linkAttributes(el: ActionTarget): LinkAttributes {
     // "looked and found none".
     ...(handler !== undefined ? { hasClickHandler: handler } : {}),
     insideForm: el.closest('form') !== null,
+    ...(hasNonGetMethodMarker(el) ? { nonGetMarker: true } : {}),
   };
 }
 
