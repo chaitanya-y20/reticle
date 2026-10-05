@@ -14,6 +14,7 @@ import { buildSnapshot } from '@/dom/snapshot.js';
 import { paintContextOf } from '@/dom/paint-context.js';
 import { matchQuery, runQuery } from '@/dom/query.js';
 import { executeAction, executeSequence, type ActionStep } from '@/actions/actions.js';
+import { hasNonGetMethodMarker } from '@/actions/danger-context.js';
 import { describe } from '@/dom/a11y.js';
 import { documentHasSourceStamps, sourceFor, formatSource } from '@/dom/addressing/source.js';
 import { themeReport } from '@/dom/theme.js';
@@ -182,6 +183,11 @@ function inspect(ref: string): unknown {
     // invisible to every probe, and an element nobody could read is exactly that case.
     ...(handlerReading !== undefined ? { hasClickHandler: handlerReading } : {}),
     insideForm: el.closest('form') !== null,
+    // Carried for the same reason as `hasClickHandler`: the server-side guard classifies this
+    // descriptor with no element in reach, and `data-turbo-method="delete"` on an otherwise plain
+    // `<a href>` is exactly the shape that would be exempted without it. Only set when the marker
+    // is present, so an absent field can never be read as "checked and clean".
+    ...(hasNonGetMethodMarker(el) ? { nonGetMarker: true } : {}),
     formAction:
       isButton(el) || isInput(el) ? (el.form?.getAttribute('action') ?? undefined) : undefined,
     formText: isButton(el) || isInput(el) ? (el.form?.textContent ?? undefined) : undefined,
