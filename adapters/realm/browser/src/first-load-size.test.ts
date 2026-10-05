@@ -304,7 +304,19 @@ const DIST_ENTRY = join(PACKAGE_ROOT, 'dist', 'index.js');
  *
  * Raised by 1,000 over the measurement (247,238), rounded down to the hundred, per the note above.
  */
-const MAX_FIRST_LOAD_BYTES = 248_200;
+/*
+ * 246_700 -> 248_200, for the plain-navigation exemption's element facts. 493 B measured on the
+ * branch's own base (246,685 -> 247,178): `isAnchor`/`hasClickHandler`/`insideForm` are read where
+ * the element is and travel on the inspect descriptor so the native path can classify without one,
+ * plus the framework adapter's `onClick` probe. All of it runs where the page is.
+ *
+ * Re-measured on the rebased tree, above the `press` change: 248,247 B. That number is measured,
+ * not carried: rebasing the branch onto main changed the byte count (the two changes overlap in
+ * `actions.ts` and share the ceiling the press change already raised), so the merged tree was
+ * bundled with this same check and read again rather than reusing either branch's figure.
+ * Raised by 1,000 over the measurement, rounded down to the hundred, per the note above.
+ */
+const MAX_FIRST_LOAD_BYTES = 249_200;
 /*
  * Raised a fifth time, 233_300 -> 233_400, for a route to be assertable in a SAVED flow. 57 B.
  *

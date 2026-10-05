@@ -23,7 +23,11 @@ import { isButton, isInput } from '@/dom/realm.js';
 import { hitTestOccluder } from '@/dom/occlusion.js';
 import { readStorage } from '@/observers/storage.js';
 import { captureDesktopWindow } from '@/dom/desktop-capture.js';
-import { identifyComponent, readComponentState } from '@/registry/stores/adapters.js';
+import {
+  identifyComponent,
+  readComponentState,
+  elementHandlesClick,
+} from '@/registry/stores/adapters.js';
 import { readStoresWithTruncation, readStoresRaw, storeNames } from '@/registry/stores.js';
 import { sanitizeWithReport } from '@/security/serialization.js';
 import { getCapabilities } from '@/registry/capabilities.js';
@@ -89,6 +93,11 @@ function inspect(ref: string): unknown {
   if (null === el) throw new Error(editEpoch.staleRefMessage(ref));
   const rect = el.getBoundingClientRect();
   const component = identifyComponent(el);
+  // Three-valued on purpose: `true` a handler is visible, `false` a handler reading was actually
+  // taken and there is none, `undefined` nothing could read the element. Only a definite `false`
+  // may travel on the descriptor, because a plain `addEventListener` handler leaves no DOM trace
+  // and the server-side guard has no element of its own to consult.
+  const handlerReading = elementHandlesClick(el);
   const view = el.ownerDocument.defaultView;
   const cs = view !== null ? view.getComputedStyle(el) : null;
   // Computed style the a11y tree is blind to — `cursor` (does it look interactive?), display/
@@ -158,6 +167,21 @@ function inspect(ref: string): unknown {
     ...(sourceUnavailable !== undefined ? { sourceUnavailable } : {}),
     tag: el.tagName.toLowerCase(),
     href: el.getAttribute('href') ?? undefined,
+    /*
+     * The anchor facts the destructive guard needs and a plain descriptor cannot carry.
+     *
+     * `href` alone reads as destructive on a plain navigation link (`/billing/payment`), and the
+     * native path classifies this descriptor with no element in reach. `isAnchor` is the fact that
+     * the role cannot supply: `role="link"` is a free string, so a `<div>` tagged that way would
+     * otherwise be exempted. `hasClickHandler` folds in what the framework adapter reports.
+     */
+    isAnchor: el instanceof HTMLAnchorElement,
+    // Carried through only when a reading was actually taken. A descriptor is what the
+    // server-side guard classifies with no element in reach, so an under-specified one has to
+    // refuse rather than buy an exemption with silence: a plain `addEventListener` handler is
+    // invisible to every probe, and an element nobody could read is exactly that case.
+    ...(handlerReading !== undefined ? { hasClickHandler: handlerReading } : {}),
+    insideForm: el.closest('form') !== null,
     formAction:
       isButton(el) || isInput(el) ? (el.form?.getAttribute('action') ?? undefined) : undefined,
     formText: isButton(el) || isInput(el) ? (el.form?.textContent ?? undefined) : undefined,
